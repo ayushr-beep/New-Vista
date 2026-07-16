@@ -88,30 +88,7 @@
         <span class="tip">Regional Demand %</span>
       </button>
       <button class="rail-btn" data-tab="cost" aria-label="Cost and placement">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.5 1.3-2.5 3-2.5s3 1 3 2.5-1.3 2-3 2.5-3 1-3 2.5 1.3 2.5 3 2.5 3-1 3-2.5"/></svg>
-        <span class="lbl">Cost</span>
-        <span class="tip">Fee Tiers &amp; Frontier</span>
-      </button>
-      <button class="rail-btn" data-tab="manifest" aria-label="Manifest decision">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
-        <span class="lbl">Manifest</span>
-        <span class="tip">Shipment Decision</span>
-      </button>
-      <button class="rail-btn" data-tab="skuanalysis" aria-label="SKU analysis">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>
-        <span class="lbl">SKUs</span>
-        <span class="tip">SKU Analysis</span>
-      </button>
-      <button class="rail-btn" data-tab="vendoranalysis" aria-label="Vendor analysis">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1m-6 4h1m4 0h1m-6 4h1m4 0h1"/></svg>
-        <span class="lbl">Vendors</span>
-        <span class="tip">Vendor Analytics</span>
-      </button>
-      <button class="rail-btn" data-tab="ai" aria-label="AI analyst">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
-        <span class="lbl">Analyst</span>
-        <span class="tip">AI Analyst</span>
-      </button>
+@@ -115,58 +63,51 @@
       <button class="rail-btn" data-tab="about" aria-label="Proven vs assumed">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg>
         <span class="lbl">Honesty</span>
@@ -170,53 +147,7 @@
         <p>Live KPIs computed from whatever real data is currently loaded. Upload your Sales and Placement Fee exports on the Data tab to replace these zero-states with your real numbers.</p>
         </div>
       </div>
-
-      <div class="kpi-grid" id="kpiGrid">
-        <!-- populated by JS -->
-      </div>
-
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-head">
-            <div>
-              <h3>Inventory vs. demand — the actual gap</h3>
-              <div class="card-sub">On-hand placement share vs. measured demand share, per region</div>
-            </div>
-          </div>
-          <div id="gapChartWrap">
-            <div class="empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 17l6-6 4 4 8-8"/></svg>
-              <h4>No demand data yet</h4>
-              <p>Upload a Sales export on the Data tab to compute real regional demand percentages.</p>
-            </div>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-head">
-            <div>
-              <h3>Regional split — current state</h3>
-              <div class="card-sub">From your real uploaded data</div>
-            </div>
-          </div>
-          <table class="data-table" id="regionTable">
-            <thead><tr><th>Region</th><th class="num">Order rows</th><th class="num">Demand %</th></tr></thead>
-            <tbody><tr><td colspan="3" style="text-align:center;color:var(--ink-faint);padding:20px 0;">No data yet</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <h3>Demand concentration — how much of your catalog actually matters</h3>
-            <div class="card-sub">Cumulative % of total demand units vs. % of SKUs, sorted highest-volume first</div>
-          </div>
-        </div>
-        <div id="paretoChartWrap">
-          <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg>
-            <h4>No demand data yet</h4>
-            <p>Upload a Sales export on the Data tab to see which share of your catalog drives most of the volume.</p>
+@@ -220,61 +161,61 @@
           </div>
         </div>
         <div id="paretoTakeaway"></div>
@@ -243,16 +174,20 @@
         <div class="panel-head-text">
         <h1>Upload &amp; data quality</h1>
         <p>Three real adapters, matching the brief: Sales History, Placement Fee log, and Inventory-by-Region (optional). CSV or Excel — files are parsed entirely in your browser, nothing is uploaded to a server.</p>
+        <p>Upload monthly Sales exports together, plus Placement Fee and Inventory-by-Region when available. Everything is parsed in your browser; no admin login, no server, no upload leaves this device.</p>
         </div>
       </div>
 
       <div class="upload-grid">
         <div class="upload-zone" id="uz-sales" data-kind="sales">
           <input type="file" id="file-sales" accept=".csv,.xlsx,.xls">
+          <input type="file" id="file-sales" accept=".csv,.xlsx,.xls" multiple>
           <div class="uz-clear" data-clear="sales">✕</div>
           <svg class="uz-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>
           <div class="uz-title">Sales History</div>
           <div class="uz-sub">CSV or Excel. Auto-detects sku, ship-state, quantity, item-status, asin, item-price &amp; more.</div>
+          <div class="uz-title">Sales History — multi-file</div>
+          <div class="uz-sub">Upload up to 6 monthly Sales files together (Jan, Feb, Mar, etc.). CSV or Excel; VISTA merges them into one demand signal.</div>
           <div class="uz-filename"></div>
         </div>
         <div class="upload-zone" id="uz-fees" data-kind="fees">
@@ -278,149 +213,7 @@
           <div class="uz-title">Vendor Spec Sheet <span style="color:var(--ink-faint);font-weight:400;">(optional)</span></div>
           <div class="uz-sub">CSV or Excel, multi-sheet supported. Real case pack &amp; box dimensions per item — replaces guessed box sizes with real vendor data when matched.</div>
           <div class="uz-filename"></div>
-        </div>
-      </div>
-
-      <div class="run-row">
-        <button class="btn btn-primary" id="runAnalysisBtn">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 3l14 9-14 9V3z"/></svg>
-          Run analysis
-        </button>
-        <button class="btn btn-ghost" id="loadSampleBtn">Load sample data instead</button>
-        <button class="btn btn-ghost" id="clearAllBtn">Clear everything</button>
-        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-dim);margin-left:6px;">
-          <input type="checkbox" id="sellThroughToggle" disabled> Sell-through correction
-        </label>
-      </div>
-      <div class="progress-bar" id="progressBar" style="display:none;"><div class="fill" id="progressFill"></div></div>
-
-      <div class="card" style="margin-top:8px;">
-        <div class="card-head"><div><h3>Adapter log</h3><div class="card-sub">Exactly what was kept, dropped, and why — per file</div></div></div>
-        <div class="adapter-log" id="adapterLog">Waiting for files…</div>
-      </div>
-    </section>
-
-    <!-- ============ DEMAND PANEL ============ -->
-    <section class="panel" id="panel-demand">
-      <div class="panel-head">
-        <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v6"/><path d="M15 7h6"/></svg></div>
-        <div class="panel-head-text">
-        <h1>Demand intelligence</h1>
-        <p>Regional demand % computed purely from real sales rows — which state the order shipped to, summed by region. No inventory correction applied unless you explicitly toggle it below. Sell-through correction only activates when an inventory file is loaded.</p>
-        </div>
-      </div>
-
-      <!-- VELOCITY STRIKE RATE — the new section you asked for -->
-      <div class="card">
-        <div class="card-head">
-          <div>
-            <h3>Regional sales velocity — daily strike rate</h3>
-            <div class="card-sub">Units sold per day per region from your real sales upload — this is what drives every demand % in the tool</div>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <span id="velocityDateRange" style="font-size:11.5px;color:var(--ink-faint);font-family:'JetBrains Mono',monospace;"></span>
-          </div>
-        </div>
-        <!-- Daily velocity KPIs -->
-        <div class="velocity-kpi-row" id="velocityKpiRow"></div>
-        <!-- Line chart: units/day per region over the date range -->
-        <div id="velocityChartWrap" style="margin-top:16px;"></div>
-        <!-- Day-by-day table -->
-        <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:14px;">
-          <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;margin-bottom:10px;">Day-by-day breakdown</div>
-          <div class="table-scroll" style="max-height:280px;">
-            <table class="data-table" id="velocityTable">
-              <thead><tr><th>Date</th><th class="num">East</th><th class="num">Central</th><th class="num">West</th><th class="num">Total</th><th>Top region</th></tr></thead>
-              <tbody><tr><td colspan="6" style="text-align:center;color:var(--ink-faint);padding:18px 0;">Upload sales data and run analysis</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <div class="kpi-grid" id="demandKpis"></div>
-      <div class="card">
-        <div class="card-head">
-          <div><h3>SKU-level demand table</h3><div class="card-sub">Sorted by total units, descending. Demand % = units sold to that region ÷ total units sold — pure sales signal, no inventory weighting unless the toggle below is on.</div></div>
-          <input type="text" id="demandSearch" placeholder="Filter by SKU…" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:8px 12px;color:var(--ink);font-size:12.5px;outline:none;width:200px;">
-        </div>
-        <div class="table-scroll">
-          <table class="data-table" id="demandTable">
-            <thead><tr><th>SKU</th><th class="num">Units</th><th class="num">East %</th><th class="num">Central %</th><th class="num">West %</th></tr></thead>
-            <tbody><tr><td colspan="5" style="text-align:center;color:var(--ink-faint);padding:24px 0;">Upload sales data and run analysis</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ COST PANEL ============ -->
-    <section class="panel" id="panel-cost">
-      <div class="panel-head">
-        <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9 9.5c0-1.5 1.3-2.5 3-2.5s3 1 3 2.5-1.3 2-3 2.5-3 1-3 2.5 1.3 2.5 3 2.5 3-1 3-2.5"/></svg></div>
-        <div class="panel-head-text">
-        <h1>Cost &amp; placement fee analytics</h1>
-        <p>Real fee rates from your placement log, regional cost breakdown, and a per-SKU savings vs. premium analysis. Every number traces back to your uploaded data — no estimates.</p>
-        </div>
-      </div>
-
-      <!-- PORTFOLIO COST SUMMARY KPIs -->
-      <div class="kpi-grid" id="costKpiGrid"></div>
-
-      <!-- REGIONAL COST BREAKDOWN + SAVINGS CHART -->
-      <div class="grid-2" style="align-items:start;">
-        <div class="card">
-          <div class="card-head"><div><h3>Placement cost by region</h3><div class="card-sub">Total real fees paid per region from your fee log</div></div></div>
-          <div id="costRegionChartWrap"></div>
-        </div>
-        <div class="card">
-          <div class="card-head"><div><h3>Savings vs. single-region baseline</h3><div class="card-sub">How much spreading demand actually costs vs. concentrating everything in the cheapest region</div></div></div>
-          <div id="costSavingsChartWrap"></div>
-        </div>
-      </div>
-
-      <!-- FEE-FREE vs PAYING BREAKDOWN -->
-      <div class="card">
-        <div class="card-head"><div><h3>SKU fee structure breakdown</h3><div class="card-sub">Which SKUs qualify for Amazon's 5-identical-box $0 fee tier vs. paying the per-unit rate — from your real fee log</div></div></div>
-        <div id="costFeeBreakdownWrap"></div>
-      </div>
-
-      <!-- FEE RATE TABLE with slicers -->
-      <div class="card">
-        <div class="card-head"><div><h3>Real fee rate table</h3><div class="card-sub">Average $/unit by region × size tier, from your actual fee log</div></div></div>
-        <div class="run-row" style="margin-bottom:14px;flex-wrap:wrap;">
-          <select id="costRegionFilter" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:8px 12px;color:var(--ink);font-size:12.5px;outline:none;">
-            <option value="all">All regions</option>
-            <option value="East">East only</option>
-            <option value="Central">Central only</option>
-            <option value="West">West only</option>
-          </select>
-          <select id="costTierFilter" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:8px 12px;color:var(--ink);font-size:12.5px;outline:none;">
-            <option value="all">All size tiers</option>
-          </select>
-          <button class="btn btn-ghost btn-sm" id="costFilterClear">Clear filters</button>
-        </div>
-        <div class="table-scroll">
-          <table class="data-table" id="feeRateTable">
-            <thead><tr><th>Region</th><th>Size Tier</th><th class="num">Avg $/unit</th><th class="num">Sample size</th><th>Source</th></tr></thead>
-            <tbody><tr><td colspan="5" style="text-align:center;color:var(--ink-faint);padding:24px 0;">Upload a placement fee log and run analysis</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- VENDOR COST BREAKDOWN -->
-      <div class="card">
-        <div class="card-head">
-          <div><h3>Vendor cost breakdown</h3><div class="card-sub">Real average placement fee per unit, by vendor — narrows the SKU picker below too</div></div>
-          <select id="costVendorFilter" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:8px 12px;color:var(--ink);font-size:12.5px;outline:none;min-width:180px;">
-            <option value="all">All vendors</option>
-          </select>
-        </div>
-        <div class="table-scroll" style="max-height:280px;">
-          <table class="data-table" id="vendorCostTable">
-            <thead><tr><th>Vendor</th><th class="num">SKUs</th><th class="num">Total units (fee log)</th><th class="num">Avg $/unit</th><th class="num">Total placement fee</th></tr></thead>
-            <tbody><tr><td colspan="5" style="text-align:center;color:var(--ink-faint);padding:24px 0;">Upload a placement fee log and run analysis</td></tr></tbody>
-          </table>
-        </div>
-      </div>
+@@ -424,51 +365,51 @@
 
       <!-- COST-VS-COVERAGE FRONTIER -->
       <div class="card">
@@ -446,6 +239,7 @@
         <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
         <div class="panel-head-text">
         <h1>Manifest decision</h1>
+        <p>Upload a real Send-to-Amazon manifest. Every SKU in it gets matched against your demand data and split using the method you choose below — heuristic or LP-optimized.</p>
         <p>Upload a real Send-to-Amazon manifest. Every SKU gets a two-pass optimization: minimize shipment splits first, then match regional demand as closely as possible within that split count.</p>
         </div>
       </div>
@@ -472,29 +266,7 @@
             <input type="text" id="masterVendorInput" placeholder="Vendor prefix (e.g. HNEY)" style="width:150px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;text-transform:uppercase;">
             <input type="text" id="masterSuffixInput" placeholder="Item suffix (e.g. WS-90004)" style="width:170px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;">
             <input type="number" id="masterCasePackInput" placeholder="Case pack" style="width:100px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;">
-            <input type="number" id="masterLengthInput" placeholder="L (in)" style="width:85px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;">
-            <input type="number" id="masterWidthInput" placeholder="W (in)" style="width:85px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;">
-            <input type="number" id="masterHeightInput" placeholder="H (in)" style="width:85px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;">
-            <input type="number" id="masterWeightInput" placeholder="Weight (lb)" style="width:100px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;">
-            <button class="btn btn-primary btn-sm" id="masterAddBtn">Add</button>
-          </div>
-          <div class="table-scroll" style="max-height:200px;" id="masterEntriesWrap" style="display:none;">
-            <table class="data-table" id="masterEntriesTable">
-              <thead><tr><th>Vendor</th><th>Suffix</th><th>Full SKU</th><th class="num">Case pack</th><th class="num">L×W×H</th><th class="num">Weight</th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div style="border-top:1px solid var(--line);padding-top:16px;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-            <div style="font-size:12.5px;font-weight:600;color:var(--ink-dim);">Vendor packing list</div>
-            <span style="font-size:10px;font-family:'JetBrains Mono',monospace;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--bg-input);color:var(--ink-faint);border:1px solid var(--line);">OPTIONAL</span>
-          </div>
-          <div style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Only needed if your vendor shares a packing list with item codes. Vendor shipping lists usually only show the item suffix (e.g. "WS-90004"), not your full SKU — tell us which vendor this file is from so we can rebuild the real SKU.</div>
-          <div class="run-row" style="flex-wrap:wrap;">
-            <input type="text" id="packingListVendorInput" placeholder="Vendor prefix for this file (e.g. HNEY)" style="width:230px;background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 11px;color:var(--ink);font-size:12.5px;outline:none;text-transform:uppercase;">
-          </div>
+@@ -498,119 +439,140 @@
           <div class="upload-zone" id="uz-packinglist" data-kind="packinglist" style="max-width:420px;margin-top:10px;">
             <input type="file" id="file-packinglist" accept=".csv,.xlsx,.xls">
             <div class="uz-clear" data-clear="packinglist">✕</div>
@@ -520,6 +292,8 @@
           </button>
           <button class="method-option" data-method="lp">
             <div class="mo-title">Lowest placement cost <span class="mo-recommended">Recommended</span></div>
+            <div class="mo-desc">Searches every possible split combination and picks the one that minimizes your total Amazon placement fee — while still hitting a minimum demand coverage target you set. Uses Amazon's real rule: 5+ identical boxes per SKU per region = $0 fee. Fewer boxes = per-unit fee. This is where the real savings come from.</div>
+            <div class="mo-tag">Optimizes your placement cost</div>
             <div class="mo-desc">Runs the VISTA two-pass optimizer: first minimize the number of shipment splits, then fix that split count and minimize regional demand mismatch. Minimum region batches prevent tiny trickle shipments; Amazon placement fees are still shown as the cost delta vs. the nearest/cheapest FC baseline.</div>
             <div class="mo-tag">Two-pass split optimization</div>
           </button>
@@ -528,6 +302,7 @@
       </div>
 
       <div class="slider-row" id="coverageSliderRow" style="display:none;">
+        <label>Minimum demand coverage</label>
         <label>Demand match floor</label>
         <input type="range" id="coverageSlider" min="0" max="100" value="85">
         <span class="slider-val" id="coverageVal">85%</span>
@@ -562,6 +337,7 @@
 
       <div class="card">
         <div class="card-head">
+          <div><h3>Shipment plan, by SKU</h3><div class="card-sub">Recommended region split for every SKU in your manifest — click a row to see the real box breakdown</div></div>
           <div><h3>Shipment plan, by SKU</h3><div class="card-sub">Recommended region split, rationale, confidence, and cost delta for every SKU — click a row to see the real box breakdown</div></div>
         </div>
         <div class="run-row" style="margin-bottom:14px;flex-wrap:wrap;">
@@ -589,6 +365,27 @@
     </section>
 
     <!-- ============ SKU ANALYSIS PANEL ============ -->
+
+    <section class="panel" id="panel-manifestanalytics">
+      <div class="panel-head">
+        <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 18V6l5-3 6 3 5-3v12l-5 3-6-3-5 3z"/><path d="M9 3v12M15 6v12"/></svg></div>
+        <div class="panel-head-text">
+          <h1>Manifest analytics</h1>
+          <p>Where to ship, why, and what it costs — a region map plus analytical callouts from the active Manifest recommendation.</p>
+        </div>
+      </div>
+      <div class="manifest-analytics-grid">
+        <div class="card maxpanel-card">
+          <div class="card-head"><div><h3>Where to ship this manifest</h3><div class="card-sub">Region map sized by recommended units; color intensity reflects cost per unit.</div></div></div>
+          <div id="manifestRegionMap" class="region-map-empty">Build a Manifest plan first.</div>
+        </div>
+        <div class="card maxpanel-card">
+          <div class="card-head"><div><h3>Analytical recommendations</h3><div class="card-sub">Demand alignment, split discipline, and placement-fee takeaways.</div></div></div>
+          <div id="manifestAnalyticsInsights" class="analytics-insights-empty">No active manifest plan yet.</div>
+        </div>
+      </div>
+    </section>
+
     <section class="panel" id="panel-skuanalysis">
       <div class="panel-head">
         <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 19V10M10 19V5M16 19v-7M21 19H3"/></svg></div>
@@ -614,195 +411,3 @@
             <thead><tr><th>#</th><th>SKU</th><th class="num">Revenue</th><th class="num">Avg price</th></tr></thead>
             <tbody><tr><td colspan="4" style="text-align:center;color:var(--ink-faint);padding:20px 0;">Upload sales data on the Data tab</td></tr></tbody>
           </table>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <div><h3>Full SKU breakdown</h3><div class="card-sub">Every SKU with units, revenue, regional concentration, and flags</div></div>
-          <input type="text" id="skuAnalysisSearch" placeholder="Filter by SKU…" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:8px 12px;color:var(--ink);font-size:12.5px;outline:none;width:200px;">
-        </div>
-        <div class="run-row" style="margin-bottom:14px;">
-          <select id="skuAnalysisSort" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 13px;color:var(--ink);font-size:12.5px;outline:none;">
-            <option value="units">Sort: Units (high to low)</option>
-            <option value="revenue">Sort: Revenue (high to low)</option>
-            <option value="concentration">Sort: Regional concentration (most skewed first)</option>
-          </select>
-          <select id="skuAnalysisFlagFilter" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 13px;color:var(--ink);font-size:12.5px;outline:none;">
-            <option value="all">All SKUs</option>
-            <option value="concentrated">Highly concentrated in one region (&gt;70%)</option>
-            <option value="low-volume">Low volume (&lt;10 units)</option>
-          </select>
-        </div>
-        <div class="table-scroll">
-          <table class="data-table" id="skuAnalysisFullTable">
-            <thead><tr><th>SKU</th><th class="num">Units</th><th class="num">Orders</th><th class="num">Revenue</th><th class="num">East %</th><th class="num">Central %</th><th class="num">West %</th><th>Flag</th></tr></thead>
-            <tbody><tr><td colspan="8" style="text-align:center;color:var(--ink-faint);padding:24px 0;">Upload sales data on the Data tab</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ VENDOR ANALYTICS PANEL ============ -->
-    <section class="panel" id="panel-vendoranalysis">
-      <div class="panel-head">
-        <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1m-6 4h1m4 0h1m-6 4h1m4 0h1"/></svg></div>
-        <div class="panel-head-text">
-        <h1>Vendor analytics</h1>
-        <p>Every SKU grouped by its real vendor prefix (the text before the first hyphen — e.g. <span class="mono">LLPN</span>, <span class="mono">TUFFO</span>) — ranked by volume, revenue, and regional concentration, with a written takeaway per vendor.</p>
-        </div>
-      </div>
-
-      <div class="kpi-grid" id="vendorKpis"></div>
-
-      <div class="card">
-        <div class="card-head">
-          <div><h3>Vendor concentration — units by region</h3><div class="card-sub">Top vendors by volume, stacked by where their demand actually comes from</div></div>
-        </div>
-        <div id="vendorConcentrationChart"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <div><h3>Vendor ranking</h3><div class="card-sub">Sorted by total units — click a vendor row for the full reasoning behind its flag</div></div>
-          <input type="text" id="vendorSearch" placeholder="Filter by vendor prefix…" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:8px 12px;color:var(--ink);font-size:12.5px;outline:none;width:200px;">
-        </div>
-        <div class="run-row" style="margin-bottom:14px;">
-          <select id="vendorSort" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 13px;color:var(--ink);font-size:12.5px;outline:none;">
-            <option value="units">Sort: Units (high to low)</option>
-            <option value="revenue">Sort: Revenue (high to low)</option>
-            <option value="skuCount">Sort: SKU count (high to low)</option>
-            <option value="concentration">Sort: Regional concentration (most skewed first)</option>
-          </select>
-        </div>
-        <div class="table-scroll">
-          <table class="data-table" id="vendorTable">
-            <thead><tr><th></th><th>Vendor</th><th class="num">SKUs</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">East %</th><th class="num">Central %</th><th class="num">West %</th></tr></thead>
-            <tbody><tr><td colspan="8" style="text-align:center;color:var(--ink-faint);padding:24px 0;">Upload sales data on the Data tab</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ AI ANALYST PANEL ============ -->
-    <section class="panel" id="panel-ai">
-      <div class="panel-head">
-        <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg></div>
-        <div class="panel-head-text">
-        <h1>Operator assistant</h1>
-        <p>Runs entirely free, with <strong style="color:var(--ink)">no API key needed</strong> — a real rules engine reading your live computed data across every tab (restock signals, regional gaps, vendor concentration, manifest cost deltas). An optional Claude or Gemini connection underneath can add richer free-text answers if you ever add a key, but nothing here requires one.</p>
-        </div>
-      </div>
-      <div class="ai-panel">
-        <div class="ai-head">
-          <div class="ai-head-left">
-            <div class="ai-orb"></div>
-            <div><h3>Operator Assistant</h3><div class="sub" id="aiSubLabel">Free rules engine — reading your live session data</div></div>
-          </div>
-          <div class="ai-status ready" id="aiStatus"><span class="led"></span><span id="aiStatusText">Ready — no key needed</span></div>
-        </div>
-        <div class="ai-body">
-          <div class="ai-suggest" id="aiSuggest">
-            <div class="ai-chip" data-q="which skus should i restock">Which SKUs should I restock?</div>
-            <div class="ai-chip" data-q="which skus should i order less of">Which SKUs should I order less of?</div>
-            <div class="ai-chip" data-q="biggest regional gap">Biggest regional placement gap?</div>
-            <div class="ai-chip" data-q="vendor concentration risk">Which vendors are concentration risks?</div>
-            <div class="ai-chip" data-q="manifest savings">How much is the manifest plan saving?</div>
-          </div>
-          <div class="ai-thread" id="aiThread"></div>
-          <div class="ai-input-row">
-            <input type="text" id="aiInput" placeholder="Ask about restocking, regional gaps, vendors, the manifest plan…">
-            <button class="ai-send" id="aiSend">Ask<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 5l7 7-7 7"/></svg></button>
-          </div>
-          <div class="ai-key-note" id="aiKeyNote">
-            <div style="margin-bottom:10px;">Optional fallback for open-ended questions the free engine can't pattern-match. Not required — the assistant above already works with zero cost.</div>
-            <div class="provider-pills">
-              <button class="provider-pill active" id="providerNoneBtn" data-provider="none">No fallback (default)</button>
-              <button class="provider-pill" id="providerGeminiBtn" data-provider="gemini">Gemini (free tier)</button>
-              <button class="provider-pill" id="providerClaudeBtn" data-provider="claude">Claude (paid)</button>
-            </div>
-            <div id="providerNote" style="margin-top:10px;font-size:11px;color:var(--ink-faint);"></div>
-            <button id="aiKeyBtn" style="margin-top:10px;display:none;">Add API key</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ ABOUT / HONESTY PANEL ============ -->
-    <section class="panel" id="panel-about">
-      <div class="panel-head">
-        <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/><path d="M9 12l2 2 4-4"/></svg></div>
-        <div class="panel-head-text">
-        <h1>Proven vs. assumed</h1>
-        <p>The same ledger this project pitches to leadership. A tool this capable, presented with full confidence before a backtest exists, sets an expectation the evidence doesn't support yet.</p>
-        </div>
-      </div>
-
-      <div class="ledger">
-        <div class="ledger-col">
-          <div class="ledger-head"><span class="swatch"></span><h4>Proven on real data</h4></div>
-          <ul>
-            <li>Adapters correctly parse actual Sales, Inventory, and Placement Fee exports — every quirk found by opening real files, not guessed schemas</li>
-            <li>East-region concentration is real and measured directly from your uploaded files, not assumed</li>
-            <li>The LP optimizer is verified against known cost-minimal corner cases and produces a genuinely monotonic cost-vs-coverage curve</li>
-            <li>The manifest adapter auto-detects column headers and flags SKUs with no sales history rather than silently guessing their demand</li>
-          </ul>
-        </div>
-        <div class="ledger-col">
-          <div class="ledger-head"><span class="swatch"></span><h4>Still assumed / not yet proven</h4></div>
-          <ul>
-            <li><b style="color:var(--ink)">No backtest exists yet.</b> Nobody has compared this tool's recommendation against what was actually shipped and what it actually cost.</li>
-            <li>Without a real Inventory-by-Region file, sell-through correction stays off — raw demand % only</li>
-            <li>The LP optimizer here is a fine grid search over the 3-region simplex, not a general-purpose simplex method — exact for 3 regions, would need real LP for more</li>
-            <li>Data persists in this browser only (localStorage) — not true multi-session disk persistence, and clearing browser data clears it</li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:18px;">
-        <div class="card-head"><div><h3>Real bugs, kept on the record</h3><div class="card-sub">Not a sanitized changelog — these recurred because they're genuine framework footguns</div></div></div>
-        <div id="bugLog"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><div><h3>What this deliberately doesn't do</h3></div></div>
-        <div class="nongoal-grid">
-          <div class="nongoal"><div class="ng-x">✕</div><h5>Live API integration</h5><p>File upload only. SP-API was scoped but never built.</p></div>
-          <div class="nongoal"><div class="ng-x">✕</div><h5>Fully automated shipping</h5><p>A human still creates the shipment in Seller Central.</p></div>
-          <div class="nongoal"><div class="ng-x">✕</div><h5>ML / forecasting</h5><p>Under a year of history is too thin to outperform the statistical methods already in use.</p></div>
-        </div>
-      </div>
-    </section>
-
-  </div>
-</div>
-
-<div class="toast-wrap" id="toastWrap"></div>
-
-<!-- ============ GLOBAL FLOATING ASSISTANT (reachable from every tab) ============ -->
-<button class="global-ai-launcher" id="globalAiLauncher" aria-label="Open Operator Assistant">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M2 12h4M18 12h4M4.9 19.1l2.8-2.8M16.3 7.7l2.8-2.8"/></svg>
-</button>
-<div class="global-ai-popup" id="globalAiPopup">
-  <div class="global-ai-popup-head">
-    <div style="display:flex;align-items:center;gap:10px;">
-      <div class="ai-orb" style="width:22px;height:22px;"></div>
-      <div>
-        <div style="font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:13px;">Operator Assistant</div>
-        <div style="font-size:10.5px;color:var(--ink-faint);">Free — no API key needed</div>
-      </div>
-    </div>
-    <button id="globalAiClose" aria-label="Close" style="background:none;border:none;color:var(--ink-faint);cursor:pointer;font-size:18px;line-height:1;">×</button>
-  </div>
-  <div class="global-ai-thread" id="globalAiThread"></div>
-  <div class="global-ai-input-row">
-    <input type="text" id="globalAiInput" placeholder="Restock? Regional gap? Vendor risk?">
-    <button id="globalAiSend" aria-label="Send">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
-    </button>
-  </div>
-</div>
-
-<script src="app.js"></script>
-</body>
-</html>
