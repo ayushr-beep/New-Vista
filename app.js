@@ -977,6 +977,7 @@ function manifestRationale(row){
   const oneRegionCoverage = row.singleRegionCoverage!=null ? fmtPct(row.singleRegionCoverage) : '—';
   const leader = Object.entries(row.demandPct).sort((a,b)=>b[1]-a[1])[0];
   return `${splitCount} region${splitCount===1?'':'s'} recommended — matches ${match} of regional demand vs. ${oneRegionCoverage} for a 1-shipment plan, given ${leader[0]}'s ${Math.max(1, leader[1]*3).toFixed(1)}x average demand share.`;
+  return `${splitCount} shipment${splitCount===1?'':'s'} recommended — matches ${match} of regional demand vs. ${oneRegionCoverage} for a 1-shipment plan, given ${leader[0]}'s ${Math.max(1, leader[1]*3).toFixed(1)}x average demand share.`;
 }
 
 /* Real LP optimizer. When isRealCasePack is true, searches over whole
@@ -1043,6 +1044,7 @@ function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePer
         const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox, perRegionBoxCounts);
         if(locCount > MAX_MANIFEST_REGIONS) continue;
         const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown, fiveBoxPlan: totalBoxes === TARGET_MANIFEST_BOXES };
+        const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown };
         if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
         if(coverage < minCoveragePct - 1e-6) continue;
         best = chooseBetterTwoTier(candidate, best);
@@ -1070,6 +1072,14 @@ function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePer
           units[biggest] += drift;
         }
       }
+  const step = totalUnits <= 300 ? 1 : Math.max(5, Math.ceil(totalUnits/200));
+  for(let e=0; e<=totalUnits; e+=step){
+    for(let c=0; c<=totalUnits-e; c+=step){
+      let w = totalUnits-e-c;
+      if(w<0) continue;
+      const units = { East:e, Central:c, West:w };
+      const drift = totalUnits - (units.East+units.Central+units.West);
+      if(drift !== 0) units.West += drift;
       if(!meetsMinimumBatch(units, minBatch)) continue;
       const coverage = servedDemandCoverage(units, demandPct, totalUnits);
       const mismatch = demandMismatch(units, demandPct, totalUnits);
@@ -1077,6 +1087,8 @@ function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePer
       const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, fiveBoxSize || unitsPerBox);
       if(locCount > MAX_MANIFEST_REGIONS) continue;
       const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown, fiveBoxPlan: !!fiveBoxSize };
+      const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox);
+      const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown };
       if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
       if(coverage < minCoveragePct - 1e-6) continue;
       best = chooseBetterTwoTier(candidate, best);
