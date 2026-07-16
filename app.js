@@ -1,4 +1,191 @@
-/* VISTA static client app — no login gate or admin session layer. */
+/* =========================================================================
+   VISTA AUTH ENGINE — multi-user login with role-based access.
+   Passwords are stored as SHA-256 hashes in localStorage.
+   Admin account seeded on first launch if nothing exists.
+   Data persistence: admin can save/restore the full parsed session state
+   to localStorage so users don't need to re-upload every time.
+   ========================================================================= */
+
+/* -- SHA-256 via WebCrypto (async, returns hex string) -- */
+async function sha256(str){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+/* -- User store (localStorage key: vista_users) -- */
+const AUTH_KEY = 'vista_users_v1';
+const SESSION_KEY = 'vista_session_v1';
+
+function getUsers(){
+  try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'[]'); }
+  catch(e){ return []; }
+}
+function saveUsers(users){ localStorage.setItem(AUTH_KEY, JSON.stringify(users)); }
+
+async function seedDefaultAdmin(){
+  const users = getUsers();
+  if(users.length === 0){
+    const hash = await sha256('admin123');
+    saveUsers([{ username:'admin', passwordHash:hash, role:'admin', active:true, createdAt: new Date().toISOString() }]);
+  }
+}
+
+async function attemptLogin(username, password){
+  const users = getUsers();
+  const user = users.find(u=>u.username.toLowerCase()===username.toLowerCase() && u.active);
+  if(!user) return null;
+  const hash = await sha256(password);
+  if(hash !== user.passwordHash) return null;
+  return user;
+}
+
+function getSession(){
+  try{ return JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null'); }
+  catch(e){ return null; }
+}
+function setSession(user){ sessionStorage.setItem(SESSION_KEY, JSON.stringify({ username:user.username, role:user.role })); }
+function clearSession(){ sessionStorage.removeItem(SESSION_KEY); }
+
+let currentUser = null;
+
+function applySession(user){
+  currentUser = user;
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('sessName').textContent = user.username;
+  const roleEl = document.getElementById('sessRole');
+  roleEl.textContent = user.role;
+  roleEl.className = 'sess-role ' + user.role;
+  const adminBtn = document.getElementById('adminPanelBtn');
+  if(adminBtn) adminBtn.style.display = user.role==='admin' ? 'inline-flex' : 'none';
+  // Lock data upload to admin only
+  applyRoleRestrictions(user.role);
+}
+
+function applyRoleRestrictions(role){
+  if(role === 'user'){
+    // Non-admins cannot upload or clear data — grey it out
+    const uploadZones = document.querySelectorAll('.upload-zone, #runAnalysisBtn, #clearAllBtn, #loadSampleBtn');
+    uploadZones.forEach(el=>{
+      el.classList.add('data-admin-only');
+      el.title = 'Data management is restricted to admins';
+    });
+    // Show a note on the data tab
+    const runRow = document.querySelector('.run-row');
+    if(runRow && !runRow.querySelector('.user-data-note')){
+      const note = document.createElement('div');
+      note.className = 'user-data-note';
+      note.style.cssText = 'font-size:12px;color:var(--ink-faint);padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--line);';
+      note.innerHTML = '🔒 <b>Data uploads are admin-only.</b> Ask your admin to load or refresh the data — you\'ll see it here automatically.';
+      runRow.parentNode.insertBefore(note, runRow);
+    }
+  }
+}
+
+
+
+
+/* -- Admin panel UI -- */
+function renderAdminPanel(){
+  renderUserList();
+}
+
+function renderUserList(){
+  const list = document.getElementById('userList');
+  if(!list) return;
+  const users = getUsers();
+  list.innerHTML = users.map((u,i)=>`
+    <div class="user-row">
+      <span class="user-row-name">${u.username}</span>
+      <span class="user-row-role">${u.role}</span>
+      <span class="user-row-status ${u.active?'active':'disabled'}">${u.active?'Active':'Disabled'}</span>
+      ${u.username === currentUser?.username ? '<span style="font-size:10.5px;color:var(--ink-faint);">(you)</span>' :
+        `<button class="btn btn-ghost btn-sm" onclick="toggleUser(${i})" style="padding:4px 10px;font-size:11px;">${u.active?'Disable':'Enable'}</button>
+         <button class="btn btn-ghost btn-sm" onclick="deleteUser(${i})" style="padding:4px 10px;font-size:11px;color:var(--danger);">Remove</button>`}
+    </div>`).join('');
+}
+
+
+function toggleUser(idx){
+  const users = getUsers();
+  if(users[idx].username === currentUser?.username){ toast('Cannot disable your own account',true); return; }
+  users[idx].active = !users[idx].active;
+  saveUsers(users);
+  renderUserList();
+}
+function deleteUser(idx){
+  const users = getUsers();
+  if(users[idx].username === currentUser?.username){ toast('Cannot remove your own account',true); return; }
+  if(!confirm('Remove user "'+users[idx].username+'"? This cannot be undone.')) return;
+  users.splice(idx,1);
+  saveUsers(users);
+  renderUserList();
+}
+
+/* -- Wire up auth screen -- */
+async function initAuth(){
+  await seedDefaultAdmin();
+  const existing = getSession();
+  if(existing){
+    const users = getUsers();
+    const user = users.find(u=>u.username===existing.username && u.active);
+    if(user){ applySession(user); return; }
+  }
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('authPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
+  document.getElementById('authLoginBtn').addEventListener('click', doLogin);
+}
+async function doLogin(){
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value;
+  const errEl = document.getElementById('authError');
+  if(!username || !password){ errEl.classList.add('visible'); errEl.textContent='Please enter both username and password.'; return; }
+  const user = await attemptLogin(username, password);
+  if(!user){ errEl.classList.add('visible'); errEl.textContent='Incorrect username or password.'; return; }
+  errEl.classList.remove('visible');
+  setSession(user);
+  applySession(user);
+}
+
+/* -- Admin panel button wiring -- */
+document.getElementById('adminPanelBtn')?.addEventListener('click', ()=>{
+  document.getElementById('adminPanel').classList.add('open');
+  renderAdminPanel();
+});
+document.getElementById('adminClose')?.addEventListener('click', ()=>{
+  document.getElementById('adminPanel').classList.remove('open');
+});
+document.getElementById('adminPanel')?.addEventListener('click', e=>{
+  if(e.target === document.getElementById('adminPanel')) document.getElementById('adminPanel').classList.remove('open');
+});
+document.getElementById('addUserBtn')?.addEventListener('click', async ()=>{
+  const u = document.getElementById('newUsername').value.trim();
+  const p = document.getElementById('newPassword').value;
+  const r = document.getElementById('newRole').value;
+  const errEl = document.getElementById('addUserError');
+  if(!u||!p){ errEl.textContent='Username and password required.'; errEl.classList.add('visible'); return; }
+  const users = getUsers();
+  if(users.find(x=>x.username.toLowerCase()===u.toLowerCase())){ errEl.textContent='Username already exists.'; errEl.classList.add('visible'); return; }
+  const hash = await sha256(p);
+  users.push({ username:u, passwordHash:hash, role:r, active:true, createdAt:new Date().toISOString() });
+  saveUsers(users);
+  document.getElementById('newUsername').value='';
+  document.getElementById('newPassword').value='';
+  errEl.classList.remove('visible');
+  renderUserList();
+  toast('User "'+u+'" added successfully');
+});
+document.getElementById('sessLogout')?.addEventListener('click', ()=>{
+  clearSession();
+  location.reload();
+});
+
+
+
+
+
+/* -- Boot -- */
+initAuth();
+
 
 /* =========================================================================
    MANIFEST INTELLIGENCE — full client-side engine.
@@ -961,8 +1148,6 @@ function servedDemandCoverage(units, demandPct, totalUnits){
 }
 
 const MIN_REGION_BATCH_UNITS = 10;
-const MAX_MANIFEST_REGIONS = 2;
-const TARGET_MANIFEST_BOXES = 5;
 function demandMismatch(units, demandPct, totalUnits){
   if(totalUnits<=0) return 0;
   return ['East','Central','West'].reduce((sum,region)=>sum+Math.abs((units[region]||0)-(demandPct[region]||0)*totalUnits),0)/totalUnits;
@@ -976,7 +1161,6 @@ function manifestRationale(row){
   const match = row.coverage!=null ? fmtPct(row.coverage) : '—';
   const oneRegionCoverage = row.singleRegionCoverage!=null ? fmtPct(row.singleRegionCoverage) : '—';
   const leader = Object.entries(row.demandPct).sort((a,b)=>b[1]-a[1])[0];
-  return `${splitCount} region${splitCount===1?'':'s'} recommended — matches ${match} of regional demand vs. ${oneRegionCoverage} for a 1-shipment plan, given ${leader[0]}'s ${Math.max(1, leader[1]*3).toFixed(1)}x average demand share.`;
   return `${splitCount} shipment${splitCount===1?'':'s'} recommended — matches ${match} of regional demand vs. ${oneRegionCoverage} for a 1-shipment plan, given ${leader[0]}'s ${Math.max(1, leader[1]*3).toFixed(1)}x average demand share.`;
 }
 
@@ -992,7 +1176,6 @@ function manifestRationale(row){
    maxAchievableCoverage, never silently approximated. */
 function chooseBetterTwoTier(candidate, best){
   if(!best) return candidate;
-  if(candidate.fiveBoxPlan !== best.fiveBoxPlan) return candidate.fiveBoxPlan ? candidate : best;
   if(candidate.locCount !== best.locCount) return candidate.locCount < best.locCount ? candidate : best;
   if(candidate.mismatch !== best.mismatch) return candidate.mismatch < best.mismatch - 1e-9 ? candidate : best;
   return candidate.totalCost < best.totalCost - 1e-9 ? candidate : best;
@@ -1042,8 +1225,6 @@ function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePer
         if(coverage > maxCoverageSeen) maxCoverageSeen = coverage;
         const perRegionBoxCounts = { East:e, Central:c, West:w };
         const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox, perRegionBoxCounts);
-        if(locCount > MAX_MANIFEST_REGIONS) continue;
-        const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown, fiveBoxPlan: totalBoxes === TARGET_MANIFEST_BOXES };
         const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown };
         if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
         if(coverage < minCoveragePct - 1e-6) continue;
@@ -1055,23 +1236,6 @@ function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePer
     return best;
   }
 
-  const fiveBoxSize = totalUnits >= MIN_REGION_BATCH_UNITS * TARGET_MANIFEST_BOXES ? Math.floor(totalUnits / TARGET_MANIFEST_BOXES) : null;
-  const candidateValues = fiveBoxSize
-    ? Array.from({length:TARGET_MANIFEST_BOXES+1}, (_,i)=>i*fiveBoxSize)
-    : Array.from({length:totalUnits+1}, (_,i)=>i);
-  for(const e of candidateValues){
-    for(const c of candidateValues){
-      if(e+c>totalUnits) continue;
-      let w = totalUnits-e-c;
-      if(fiveBoxSize && w % fiveBoxSize !== 0 && w !== totalUnits - (TARGET_MANIFEST_BOXES-1)*fiveBoxSize) continue;
-      const units = { East:e, Central:c, West:w };
-      if(fiveBoxSize){
-        const drift = totalUnits - (units.East+units.Central+units.West);
-        if(drift !== 0){
-          const biggest = Object.entries(units).sort((a,b)=>b[1]-a[1])[0][0];
-          units[biggest] += drift;
-        }
-      }
   const step = totalUnits <= 300 ? 1 : Math.max(5, Math.ceil(totalUnits/200));
   for(let e=0; e<=totalUnits; e+=step){
     for(let c=0; c<=totalUnits-e; c+=step){
@@ -1084,9 +1248,6 @@ function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePer
       const coverage = servedDemandCoverage(units, demandPct, totalUnits);
       const mismatch = demandMismatch(units, demandPct, totalUnits);
       if(coverage > maxCoverageSeen) maxCoverageSeen = coverage;
-      const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, fiveBoxSize || unitsPerBox);
-      if(locCount > MAX_MANIFEST_REGIONS) continue;
-      const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown, fiveBoxPlan: !!fiveBoxSize };
       const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox);
       const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown };
       if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
@@ -1298,7 +1459,7 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
    APPLICATION STATE
    ============================================================ */
 const state = {
-  filesRaw: { sales:null, salesFiles:[], fees:null, inventory:null, manifest:null, specsheet:null, packinglist:null },
+  filesRaw: { sales:null, fees:null, inventory:null, manifest:null, specsheet:null, packinglist:null },
   detectedHeaders: { sales:null, fees:null, inventory:null, manifest:null, specsheet:null },
   salesAdapted: null, feeAdapted: null, inventoryAdapted: null,
   demand: null, feeRateTable: null, defaultFeePerUnit: 0.4,
@@ -1321,7 +1482,6 @@ const state = {
    a hyphen-delimited prefix; the remainder (malformed/placeholder SKUs
    like "Uncommingled.MSKU...") get bucketed into an explicit
    "Unidentified" group rather than silently dropped or crashing. */
-function normalizeSkuKey(sku){ return String(sku||'').trim().toUpperCase(); }
 function extractVendorPrefix(sku){
   if(!sku) return 'Unidentified';
   const idx = sku.indexOf('-');
@@ -1339,12 +1499,8 @@ function getActiveSkuSet(){
   let skus = Object.keys(state.demand);
   if(state.scopeMode === 'manifest'){
     if(!state.manifestPlan || !state.manifestPlan.length) return new Set(); // manifest mode selected but nothing built yet -> empty scope, not silently "all"
-    const manifestSkus = new Set(state.manifestPlan.map(r=>normalizeSkuKey(r.sku)));
-    skus = skus.filter(s=>manifestSkus.has(normalizeSkuKey(s)));
-    if(!skus.length){
-      const manifestVendors = new Set(state.manifestPlan.map(r=>extractVendorPrefix(r.sku)).filter(v=>v !== 'Unidentified'));
-      skus = Object.keys(state.demand).filter(s=>manifestVendors.has(extractVendorPrefix(s)));
-    }
+    const manifestSkus = new Set(state.manifestPlan.map(r=>r.sku));
+    skus = skus.filter(s=>manifestSkus.has(s));
   }
   if(state.globalVendorFilter !== 'all'){
     skus = skus.filter(s=>extractVendorPrefix(s)===state.globalVendorFilter);
@@ -1611,34 +1767,23 @@ function wireUploadZone(kind, inputId, zoneId){
   zone.addEventListener('dragleave', ()=> zone.classList.remove('dragover'));
   zone.addEventListener('drop', (e)=>{
     e.preventDefault(); zone.classList.remove('dragover');
-    if(e.dataTransfer.files.length) handleFileSelected(kind, kind === 'sales' ? Array.from(e.dataTransfer.files).slice(0,6) : e.dataTransfer.files[0], zone);
+    if(e.dataTransfer.files.length) handleFileSelected(kind, e.dataTransfer.files[0], zone);
   });
-  input.addEventListener('change', ()=>{ if(input.files.length) handleFileSelected(kind, kind === 'sales' ? Array.from(input.files).slice(0,6) : input.files[0], zone); });
+  input.addEventListener('change', ()=>{ if(input.files.length) handleFileSelected(kind, input.files[0], zone); });
   zone.querySelector('.uz-clear')?.addEventListener('click', (e)=>{
     e.stopPropagation();
     state.filesRaw[kind] = null;
-      if(kind === 'sales') state.filesRaw.salesFiles = [];
     zone.classList.remove('has-file');
     zone.querySelector('.uz-filename').textContent = '';
     input.value = '';
   });
 }
 async function handleFileSelected(kind, file, zone){
-  if(kind === 'sales' && Array.isArray(file)){
-    state.filesRaw.salesFiles = file.slice(0, 6);
-    state.filesRaw.sales = state.filesRaw.salesFiles[0] || null;
-  } else {
-    state.filesRaw[kind] = file;
-  }
+  state.filesRaw[kind] = file;
   zone.classList.add('has-file');
   zone.classList.add('detecting');
-  const fmt = Array.isArray(file) ? 'mixed' : (isExcelFile(file) ? 'XLSX' : 'CSV');
-  if(kind === 'sales' && Array.isArray(file)){
-    const totalSize = file.reduce((sum,f)=>sum+f.size,0);
-    zone.querySelector('.uz-filename').textContent = `${file.length} sales files · ${(totalSize/1024/1024).toFixed(2)} MB total`;
-  } else {
-    zone.querySelector('.uz-filename').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB · ' + fmt;
-  }
+  const fmt = isExcelFile(file) ? 'XLSX' : 'CSV';
+  zone.querySelector('.uz-filename').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB · ' + fmt;
   if(kind === 'packinglist'){
     // Packing lists use their own dedicated parser (triggered by the
     // "Parse packing list" button, which also needs the vendor prefix
@@ -1656,12 +1801,11 @@ async function handleFileSelected(kind, file, zone){
   } else {
     mapBox.innerHTML = '<span class="uz-colmap-loading">Detecting columns…</span>';
   }
-  toast(kind === 'sales' && Array.isArray(file) ? `${file.length} sales files ready` : file.name + ' ready');
+  toast(file.name + ' ready');
   const schemaKeyForKind = kind === 'sales' ? 'sales' : kind === 'fees' ? 'fees' : kind === 'inventory' ? 'inventory' : kind === 'specsheet' ? 'specsheet' : 'manifest';
   try{
     const loader = kind === 'specsheet' ? loadMultiSheetTabularFile : loadTabularFile;
-    const headerFile = (kind === 'sales' && Array.isArray(file)) ? file[0] : file;
-    const { headers, sheetName, headerRow, sheetAutoDetectFailed, noDataRowsFound, sheetsUsed } = await loader(headerFile, schemaKeyForKind);
+    const { headers, sheetName, headerRow, sheetAutoDetectFailed, noDataRowsFound, sheetsUsed } = await loader(file, schemaKeyForKind);
     state.detectedHeaders[kind] = headers;
     renderColumnMap(kind, zone, headers, { sheetName, headerRow, sheetAutoDetectFailed, noDataRowsFound, sheetsUsed });
   } catch(err){
@@ -1716,7 +1860,6 @@ wireUploadZone('packinglist','file-packinglist','uz-packinglist');
 document.getElementById('clearAllBtn').addEventListener('click', ()=>{
   ['sales','fees','inventory'].forEach(kind=>{
     state.filesRaw[kind] = null;
-      if(kind === 'sales') state.filesRaw.salesFiles = [];
     document.getElementById('uz-'+kind).classList.remove('has-file');
     document.getElementById('uz-'+kind).querySelector('.uz-filename').textContent = '';
     document.getElementById('file-'+kind).value = '';
@@ -1757,29 +1900,20 @@ async function runAnalysis(){
   }
 
   try{
-    if(state.filesRaw.sales || (state.filesRaw.salesFiles && state.filesRaw.salesFiles.length)){
-      const salesFiles = state.filesRaw.salesFiles && state.filesRaw.salesFiles.length ? state.filesRaw.salesFiles : [state.filesRaw.sales];
-      logLine(log, 'Sales files', `reading ${salesFiles.length} file${salesFiles.length===1?'':'s'}…`);
-      let allRecords = [], totalRaw = 0, kept = 0, droppedNonUS = 0, droppedUnresolvedState = 0, droppedStatus = 0, formats = new Set(), encodings = new Set();
-      for(const salesFile of salesFiles){
-        const { objects, encoding, format } = await loadTabularFile(salesFile, 'sales');
-        const { records, stats } = adaptSalesRows(objects);
-        allRecords = allRecords.concat(records);
-        totalRaw += stats.totalRaw; kept += stats.kept;
-        droppedNonUS += stats.droppedNonUS; droppedUnresolvedState += stats.droppedUnresolvedState; droppedStatus += stats.droppedStatus;
-        formats.add(format === 'excel' ? 'Excel (.xlsx)' : 'CSV');
-        if(format === 'csv') encodings.add(encoding);
-      }
+    if(state.filesRaw.sales){
+      logLine(log, 'Sales file', 'reading…');
+      const { objects, encoding, format } = await loadTabularFile(state.filesRaw.sales, 'sales');
       fill.style.width = '30%';
-      state.salesAdapted = allRecords;
+      const { records, stats } = adaptSalesRows(objects);
+      state.salesAdapted = records;
       log.innerHTML = '';
-      logLine(log, 'Sales uploads merged', `<b>${salesFiles.length}</b> file${salesFiles.length===1?'':'s'} (${formats.size ? Array.from(formats).join(', ') : 'unknown'})`, 'good');
-      if(encodings.size) logLine(log, 'Sales encoding detected', Array.from(encodings).join(', '), Array.from(encodings).some(e=>e.includes('fallback')) ? 'warn' : 'good');
-      logLine(log, 'Sales rows parsed', `<b>${totalRaw.toLocaleString()}</b>`);
-      logLine(log, 'Kept (US, resolvable state, valid qty)', `<b>${kept.toLocaleString()}</b>`, 'good');
-      if(droppedNonUS) logLine(log, 'Dropped — non-US', droppedNonUS.toLocaleString(), 'warn');
-      if(droppedUnresolvedState) logLine(log, 'Dropped — unresolvable state (military/intl)', droppedUnresolvedState.toLocaleString(), 'warn');
-      if(droppedStatus) logLine(log, 'Dropped — excluded status', droppedStatus.toLocaleString(), 'warn');
+      logLine(log, 'Sales file format', format === 'excel' ? 'Excel (.xlsx)' : 'CSV', 'good');
+      if(format === 'csv') logLine(log, 'Sales encoding detected', encoding, encoding.includes('fallback') ? 'warn' : 'good');
+      logLine(log, 'Sales rows parsed', `<b>${stats.totalRaw.toLocaleString()}</b>`);
+      logLine(log, 'Kept (US, resolvable state, valid qty)', `<b>${stats.kept.toLocaleString()}</b>`, 'good');
+      if(stats.droppedNonUS) logLine(log, 'Dropped — non-US', stats.droppedNonUS.toLocaleString(), 'warn');
+      if(stats.droppedUnresolvedState) logLine(log, 'Dropped — unresolvable state (military/intl)', stats.droppedUnresolvedState.toLocaleString(), 'warn');
+      if(stats.droppedStatus) logLine(log, 'Dropped — excluded status', stats.droppedStatus.toLocaleString(), 'warn');
     }
     fill.style.width = '55%';
 
@@ -1959,7 +2093,6 @@ function renderAll(){
   renderFrontierSelect();
   renderSkuAnalysis();
   renderVendorAnalysis();
-  renderManifestAnalytics();
   initAllChartInteractivity();
 }
 
@@ -3188,55 +3321,6 @@ function renderExecSummary(portfolio, summary){
     </div>`;
 }
 
-
-function renderManifestAnalytics(){
-  const mapEl = document.getElementById('manifestRegionMap');
-  const insightsEl = document.getElementById('manifestAnalyticsInsights');
-  if(!mapEl || !insightsEl) return;
-  if(!state.manifestPlan || !state.manifestPlan.length || !state.manifestPortfolio){
-    mapEl.className = 'region-map-empty';
-    mapEl.innerHTML = 'Build a Manifest plan first.';
-    insightsEl.className = 'analytics-insights-empty';
-    insightsEl.innerHTML = 'No active manifest plan yet.';
-    return;
-  }
-  const p = state.manifestPortfolio;
-  const maxUnits = Math.max(1, p.units.East||0, p.units.Central||0, p.units.West||0);
-  const regionCost = { East:0, Central:0, West:0 };
-  const regionSkuCount = { East:0, Central:0, West:0 };
-  state.manifestPlan.forEach(row=>{
-    ['East','Central','West'].forEach(region=>{
-      const units = row.splitUnits[region]||0;
-      if(units>0){ regionCost[region] += row.boxBreakdown?.[region]?.cost || 0; regionSkuCount[region]++; }
-    });
-  });
-  mapEl.className = 'manifest-region-map';
-  mapEl.innerHTML = ['East','Central','West'].map(region=>{
-    const units = p.units[region]||0;
-    const pct = p.pct[region]||0;
-    const cpu = units ? regionCost[region]/units : 0;
-    const scale = 0.72 + (units/maxUnits)*0.28;
-    return `<div class="region-node ${region.toLowerCase()}" style="transform:scale(${scale.toFixed(2)});">
-      <div class="region-node-label">${region}</div>
-      <div class="region-node-value">${units.toLocaleString()}</div>
-      <div class="region-node-sub">${fmtPct(pct)} of units · ${fmtMoney(cpu)}/unit</div>
-      <div class="region-node-foot">${regionSkuCount[region]} SKU${regionSkuCount[region]===1?'':'s'}</div>
-    </div>`;
-  }).join('');
-  const topRegion = Object.entries(p.units).sort((a,b)=>b[1]-a[1])[0];
-  const usedCounts = state.manifestPlan.map(r=>countUsedRegions(r.splitUnits));
-  const overTwo = usedCounts.filter(c=>c>2).length;
-  const avgSplit = usedCounts.reduce((a,b)=>a+b,0)/usedCounts.length;
-  const savings = p.cheapestOnlyCost - p.totalCost;
-  insightsEl.className = 'analytics-insights';
-  insightsEl.innerHTML = `
-    <div class="insight-row"><span>Primary ship-to region</span><b>${topRegion[0]} · ${fmtPct(topRegion[1]/Math.max(1,(p.units.East+p.units.Central+p.units.West)))}</b></div>
-    <div class="insight-row"><span>Split discipline</span><b>${avgSplit.toFixed(1)} regions/SKU · ${overTwo} over the 2-region cap</b></div>
-    <div class="insight-row"><span>Demand match</span><b>${p.weightedAvgCoverage!=null?fmtPct(p.weightedAvgCoverage):'—'}</b></div>
-    <div class="insight-row"><span>Placement-fee delta</span><b style="color:${savings>=0?'var(--good)':'var(--danger)'}">${savings>=0?'+':''}${fmtMoney(savings)} vs. single-region baseline</b></div>
-    <div class="insight-callout">Recommendation: ship the manifest mostly to <b>${topRegion[0]}</b>, keep SKU-level plans capped at two regions unless case-pack math forces otherwise, and use the downloadable per-region files from the Manifest tab for execution.</div>`;
-}
-
 function renderManifestKpis(summary){
   const grid = document.getElementById('manifestKpis');
   const lineNote = summary.totalPackingLines > summary.totalSkus
@@ -4127,6 +4211,16 @@ function handleGlobalAsk(){
 }
 globalSend.addEventListener('click', handleGlobalAsk);
 globalInput.addEventListener('keydown', e=>{ if(e.key==='Enter') handleGlobalAsk(); });
+
+/* ---------------------------- LIVE CLOCK ---------------------------- */
+function updateClock(){
+  const el = document.getElementById('liveClock');
+  if(!el) return;
+  const now = new Date();
+  el.textContent = now.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+updateClock();
+setInterval(updateClock, 1000);
 
 /* ---------------------------- SUBTLE 3D CARD TILT ---------------------------- */
 /* A real, mouse-tracked perspective tilt on KPI cards — kept deliberately
