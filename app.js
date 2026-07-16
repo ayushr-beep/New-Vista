@@ -1,191 +1,4 @@
-/* =========================================================================
-   VISTA AUTH ENGINE — multi-user login with role-based access.
-   Passwords are stored as SHA-256 hashes in localStorage.
-   Admin account seeded on first launch if nothing exists.
-   Data persistence: admin can save/restore the full parsed session state
-   to localStorage so users don't need to re-upload every time.
-   ========================================================================= */
-
-/* -- SHA-256 via WebCrypto (async, returns hex string) -- */
-async function sha256(str){
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
-}
-
-/* -- User store (localStorage key: vista_users) -- */
-const AUTH_KEY = 'vista_users_v1';
-const SESSION_KEY = 'vista_session_v1';
-
-function getUsers(){
-  try{ return JSON.parse(localStorage.getItem(AUTH_KEY)||'[]'); }
-  catch(e){ return []; }
-}
-function saveUsers(users){ localStorage.setItem(AUTH_KEY, JSON.stringify(users)); }
-
-async function seedDefaultAdmin(){
-  const users = getUsers();
-  if(users.length === 0){
-    const hash = await sha256('admin123');
-    saveUsers([{ username:'admin', passwordHash:hash, role:'admin', active:true, createdAt: new Date().toISOString() }]);
-  }
-}
-
-async function attemptLogin(username, password){
-  const users = getUsers();
-  const user = users.find(u=>u.username.toLowerCase()===username.toLowerCase() && u.active);
-  if(!user) return null;
-  const hash = await sha256(password);
-  if(hash !== user.passwordHash) return null;
-  return user;
-}
-
-function getSession(){
-  try{ return JSON.parse(sessionStorage.getItem(SESSION_KEY)||'null'); }
-  catch(e){ return null; }
-}
-function setSession(user){ sessionStorage.setItem(SESSION_KEY, JSON.stringify({ username:user.username, role:user.role })); }
-function clearSession(){ sessionStorage.removeItem(SESSION_KEY); }
-
-let currentUser = null;
-
-function applySession(user){
-  currentUser = user;
-  document.getElementById('authScreen').style.display = 'none';
-  document.getElementById('sessName').textContent = user.username;
-  const roleEl = document.getElementById('sessRole');
-  roleEl.textContent = user.role;
-  roleEl.className = 'sess-role ' + user.role;
-  const adminBtn = document.getElementById('adminPanelBtn');
-  if(adminBtn) adminBtn.style.display = user.role==='admin' ? 'inline-flex' : 'none';
-  // Lock data upload to admin only
-  applyRoleRestrictions(user.role);
-}
-
-function applyRoleRestrictions(role){
-  if(role === 'user'){
-    // Non-admins cannot upload or clear data — grey it out
-    const uploadZones = document.querySelectorAll('.upload-zone, #runAnalysisBtn, #clearAllBtn, #loadSampleBtn');
-    uploadZones.forEach(el=>{
-      el.classList.add('data-admin-only');
-      el.title = 'Data management is restricted to admins';
-    });
-    // Show a note on the data tab
-    const runRow = document.querySelector('.run-row');
-    if(runRow && !runRow.querySelector('.user-data-note')){
-      const note = document.createElement('div');
-      note.className = 'user-data-note';
-      note.style.cssText = 'font-size:12px;color:var(--ink-faint);padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--line);';
-      note.innerHTML = '🔒 <b>Data uploads are admin-only.</b> Ask your admin to load or refresh the data — you\'ll see it here automatically.';
-      runRow.parentNode.insertBefore(note, runRow);
-    }
-  }
-}
-
-
-
-
-/* -- Admin panel UI -- */
-function renderAdminPanel(){
-  renderUserList();
-}
-
-function renderUserList(){
-  const list = document.getElementById('userList');
-  if(!list) return;
-  const users = getUsers();
-  list.innerHTML = users.map((u,i)=>`
-    <div class="user-row">
-      <span class="user-row-name">${u.username}</span>
-      <span class="user-row-role">${u.role}</span>
-      <span class="user-row-status ${u.active?'active':'disabled'}">${u.active?'Active':'Disabled'}</span>
-      ${u.username === currentUser?.username ? '<span style="font-size:10.5px;color:var(--ink-faint);">(you)</span>' :
-        `<button class="btn btn-ghost btn-sm" onclick="toggleUser(${i})" style="padding:4px 10px;font-size:11px;">${u.active?'Disable':'Enable'}</button>
-         <button class="btn btn-ghost btn-sm" onclick="deleteUser(${i})" style="padding:4px 10px;font-size:11px;color:var(--danger);">Remove</button>`}
-    </div>`).join('');
-}
-
-
-function toggleUser(idx){
-  const users = getUsers();
-  if(users[idx].username === currentUser?.username){ toast('Cannot disable your own account',true); return; }
-  users[idx].active = !users[idx].active;
-  saveUsers(users);
-  renderUserList();
-}
-function deleteUser(idx){
-  const users = getUsers();
-  if(users[idx].username === currentUser?.username){ toast('Cannot remove your own account',true); return; }
-  if(!confirm('Remove user "'+users[idx].username+'"? This cannot be undone.')) return;
-  users.splice(idx,1);
-  saveUsers(users);
-  renderUserList();
-}
-
-/* -- Wire up auth screen -- */
-async function initAuth(){
-  await seedDefaultAdmin();
-  const existing = getSession();
-  if(existing){
-    const users = getUsers();
-    const user = users.find(u=>u.username===existing.username && u.active);
-    if(user){ applySession(user); return; }
-  }
-  document.getElementById('authScreen').style.display = 'flex';
-  document.getElementById('authPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
-  document.getElementById('authLoginBtn').addEventListener('click', doLogin);
-}
-async function doLogin(){
-  const username = document.getElementById('authUsername').value.trim();
-  const password = document.getElementById('authPassword').value;
-  const errEl = document.getElementById('authError');
-  if(!username || !password){ errEl.classList.add('visible'); errEl.textContent='Please enter both username and password.'; return; }
-  const user = await attemptLogin(username, password);
-  if(!user){ errEl.classList.add('visible'); errEl.textContent='Incorrect username or password.'; return; }
-  errEl.classList.remove('visible');
-  setSession(user);
-  applySession(user);
-}
-
-/* -- Admin panel button wiring -- */
-document.getElementById('adminPanelBtn')?.addEventListener('click', ()=>{
-  document.getElementById('adminPanel').classList.add('open');
-  renderAdminPanel();
-});
-document.getElementById('adminClose')?.addEventListener('click', ()=>{
-  document.getElementById('adminPanel').classList.remove('open');
-});
-document.getElementById('adminPanel')?.addEventListener('click', e=>{
-  if(e.target === document.getElementById('adminPanel')) document.getElementById('adminPanel').classList.remove('open');
-});
-document.getElementById('addUserBtn')?.addEventListener('click', async ()=>{
-  const u = document.getElementById('newUsername').value.trim();
-  const p = document.getElementById('newPassword').value;
-  const r = document.getElementById('newRole').value;
-  const errEl = document.getElementById('addUserError');
-  if(!u||!p){ errEl.textContent='Username and password required.'; errEl.classList.add('visible'); return; }
-  const users = getUsers();
-  if(users.find(x=>x.username.toLowerCase()===u.toLowerCase())){ errEl.textContent='Username already exists.'; errEl.classList.add('visible'); return; }
-  const hash = await sha256(p);
-  users.push({ username:u, passwordHash:hash, role:r, active:true, createdAt:new Date().toISOString() });
-  saveUsers(users);
-  document.getElementById('newUsername').value='';
-  document.getElementById('newPassword').value='';
-  errEl.classList.remove('visible');
-  renderUserList();
-  toast('User "'+u+'" added successfully');
-});
-document.getElementById('sessLogout')?.addEventListener('click', ()=>{
-  clearSession();
-  location.reload();
-});
-
-
-
-
-
-/* -- Boot -- */
-initAuth();
-
+/* VISTA static client app — no login gate or admin session layer. */
 
 /* =========================================================================
    MANIFEST INTELLIGENCE — full client-side engine.
@@ -1147,6 +960,25 @@ function servedDemandCoverage(units, demandPct, totalUnits){
   return 1 - (shortfall/totalUnits);
 }
 
+const MIN_REGION_BATCH_UNITS = 10;
+const MAX_MANIFEST_REGIONS = 2;
+const TARGET_MANIFEST_BOXES = 5;
+function demandMismatch(units, demandPct, totalUnits){
+  if(totalUnits<=0) return 0;
+  return ['East','Central','West'].reduce((sum,region)=>sum+Math.abs((units[region]||0)-(demandPct[region]||0)*totalUnits),0)/totalUnits;
+}
+function countUsedRegions(units){ return ['East','Central','West'].filter(r=>(units[r]||0)>0).length; }
+function meetsMinimumBatch(units, batchSize){
+  return ['East','Central','West'].every(r => !units[r] || units[r] >= batchSize);
+}
+function manifestRationale(row){
+  const splitCount = countUsedRegions(row.splitUnits);
+  const match = row.coverage!=null ? fmtPct(row.coverage) : '—';
+  const oneRegionCoverage = row.singleRegionCoverage!=null ? fmtPct(row.singleRegionCoverage) : '—';
+  const leader = Object.entries(row.demandPct).sort((a,b)=>b[1]-a[1])[0];
+  return `${splitCount} region${splitCount===1?'':'s'} recommended — matches ${match} of regional demand vs. ${oneRegionCoverage} for a 1-shipment plan, given ${leader[0]}'s ${Math.max(1, leader[1]*3).toFixed(1)}x average demand share.`;
+}
+
 /* Real LP optimizer. When isRealCasePack is true, searches over whole
    BOX counts per region (the only physically valid allocation space for
    a sealed case-packed item) instead of arbitrary unit fractions. Single-
@@ -1157,95 +989,101 @@ function servedDemandCoverage(units, demandPct, totalUnits){
    mathematically unreachable (e.g. 2 boxes split across 3 regions can
    never hit 85% coverage) — that is reported explicitly via
    maxAchievableCoverage, never silently approximated. */
+function chooseBetterTwoTier(candidate, best){
+  if(!best) return candidate;
+  if(candidate.fiveBoxPlan !== best.fiveBoxPlan) return candidate.fiveBoxPlan ? candidate : best;
+  if(candidate.locCount !== best.locCount) return candidate.locCount < best.locCount ? candidate : best;
+  if(candidate.mismatch !== best.mismatch) return candidate.mismatch < best.mismatch - 1e-9 ? candidate : best;
+  return candidate.totalCost < best.totalCost - 1e-9 ? candidate : best;
+}
+function oneRegionBestCoverage(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox){
+  let best = null;
+  for(const region of ['East','Central','West']){
+    const units = { East:0, Central:0, West:0 };
+    units[region] = totalUnits;
+    const coverage = servedDemandCoverage(units, demandPct, totalUnits);
+    const costResult = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox);
+    const candidate = { region, units, coverage, totalCost:costResult.totalCost };
+    if(!best || coverage > best.coverage + 1e-9 || (Math.abs(coverage-best.coverage)<1e-9 && candidate.totalCost < best.totalCost)) best = candidate;
+  }
+  return best;
+}
+
+/* Two-pass MILP-equivalent optimizer for VISTA's three-region static build.
+   Pass 1 minimizes the number of used regions (binary y_r). Pass 2 fixes
+   that minimum split count and minimizes absolute demand mismatch. The
+   exhaustive search is equivalent to the tiny MILP domain here and avoids a
+   backend while preserving the business priority order from the spec. */
 function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, minCoveragePct, gridStep, unitsPerBox, isRealCasePack, declaredBoxCount){
+  const minBatch = Math.min(MIN_REGION_BATCH_UNITS, totalUnits);
+  let best = null, bestByCoverage = null, maxCoverageSeen = 0;
+
   if(isRealCasePack && unitsPerBox && unitsPerBox>0){
-    // Real declared box count from the manifest is the ground truth for
-    // how many physical boxes exist — never recomputed by division alone.
-    // When the vendor's quantity doesn't divide evenly by units/box
-    // (e.g. 171 units in 4 boxes, where 4 boxes don't multiply out to
-    // exactly 171), the declared box count still wins for the identical
-    // portion, and the real leftover becomes one additional remainder
-    // box that travels with whichever region gets it — never silently
-    // recomputed into a different box count or box size.
     let totalBoxes, remainderUnits = 0;
     if(declaredBoxCount && declaredBoxCount>0){
       totalBoxes = declaredBoxCount;
       remainderUnits = totalUnits - (unitsPerBox*declaredBoxCount);
-      if(remainderUnits < 0){
-        // Declared boxes*unitsPerBox exceeds real quantity -- the
-        // manifest's own numbers don't reconcile; fall back to pure
-        // division rather than search a box count larger than what
-        // could possibly exist.
-        totalBoxes = Math.floor(totalUnits/unitsPerBox);
-        remainderUnits = totalUnits % unitsPerBox;
-      }
+      if(remainderUnits < 0){ totalBoxes = Math.floor(totalUnits/unitsPerBox); remainderUnits = totalUnits % unitsPerBox; }
     } else if(totalUnits % unitsPerBox === 0){
       totalBoxes = totalUnits/unitsPerBox;
     } else {
       totalBoxes = Math.floor(totalUnits/unitsPerBox);
       remainderUnits = totalUnits % unitsPerBox;
     }
-
-    let best = null, bestByCoverage = null, maxCoverageSeen = 0;
     for(let e=0; e<=totalBoxes; e++){
       for(let c=0; c<=totalBoxes-e; c++){
         const w = totalBoxes-e-c;
         const units = { East:e*unitsPerBox, Central:c*unitsPerBox, West:w*unitsPerBox };
-        // The real remainder (if any) always rides with whichever region
-        // already has the most identical boxes — it's physically one
-        // more box, not a unit that can float independently.
-        if(remainderUnits>0){
-          const biggest = e>=c && e>=w ? 'East' : c>=w ? 'Central' : 'West';
-          units[biggest] += remainderUnits;
-        }
+        if(remainderUnits>0){ const biggest = e>=c && e>=w ? 'East' : c>=w ? 'Central' : 'West'; units[biggest] += remainderUnits; }
+        if(!meetsMinimumBatch(units, minBatch)) continue;
         const coverage = servedDemandCoverage(units, demandPct, totalUnits);
+        const mismatch = demandMismatch(units, demandPct, totalUnits);
         if(coverage > maxCoverageSeen) maxCoverageSeen = coverage;
         const perRegionBoxCounts = { East:e, Central:c, West:w };
         const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox, perRegionBoxCounts);
-        // Track best by coverage (primary) then cost (tiebreak) — this is the
-        // correct fallback when the coverage target is unreachable. Giving up
-        // on demand coverage in favour of a cheaper split defeats the purpose.
-        if(!bestByCoverage
-          || coverage > bestByCoverage.coverage + 1e-6
-          || (Math.abs(coverage - bestByCoverage.coverage) < 1e-6 && totalCost < bestByCoverage.totalCost - 1e-9)){
-          bestByCoverage = { units, totalCost, coverage, locCount, breakdown };
-        }
+        if(locCount > MAX_MANIFEST_REGIONS) continue;
+        const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown, fiveBoxPlan: totalBoxes === TARGET_MANIFEST_BOXES };
+        if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
         if(coverage < minCoveragePct - 1e-6) continue;
-        if(!best || totalCost < best.totalCost - 1e-9) best = { units, totalCost, coverage, locCount, breakdown };
+        best = chooseBetterTwoTier(candidate, best);
       }
     }
-    if(!best && bestByCoverage){
-      // Requested coverage floor is mathematically unreachable at this
-      // case-pack granularity. Return the split with the BEST DEMAND COVERAGE
-      // achievable — not the cheapest. When you have only 2 boxes and can't
-      // hit 85%, the right answer is Central+West (72.4% coverage) not
-      // East-only (28.3% coverage just because it's cheaper).
-      return { ...bestByCoverage, coverageTargetUnreachable: true, maxAchievableCoverage: maxCoverageSeen };
-    }
+    if(!best && bestByCoverage) return { ...bestByCoverage, coverageTargetUnreachable:true, maxAchievableCoverage:maxCoverageSeen };
+    if(best) best.singleRegionCoverage = oneRegionBestCoverage(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox)?.coverage;
     return best;
   }
 
-  let best = null;
-  gridStep = gridStep || (totalUnits>200 ? 0.05 : 0.02);
-  for(let a=0; a<=1.0001; a+=gridStep){
-    for(let b=0; b<=1.0001-a; b+=gridStep){
-      const c = 1-a-b;
-      if(c < -1e-6) continue;
-      const frac = { East:a, Central:b, West:Math.max(c,0) };
-      const units = {
-        East: Math.round(totalUnits*frac.East),
-        Central: Math.round(totalUnits*frac.Central),
-        West: Math.round(totalUnits*frac.West),
-      };
-      const drift = totalUnits - (units.East+units.Central+units.West);
-      if(drift !== 0) units.West += drift;
-      if(units.East<0||units.Central<0||units.West<0) continue;
+  const fiveBoxSize = totalUnits >= MIN_REGION_BATCH_UNITS * TARGET_MANIFEST_BOXES ? Math.floor(totalUnits / TARGET_MANIFEST_BOXES) : null;
+  const candidateValues = fiveBoxSize
+    ? Array.from({length:TARGET_MANIFEST_BOXES+1}, (_,i)=>i*fiveBoxSize)
+    : Array.from({length:totalUnits+1}, (_,i)=>i);
+  for(const e of candidateValues){
+    for(const c of candidateValues){
+      if(e+c>totalUnits) continue;
+      let w = totalUnits-e-c;
+      if(fiveBoxSize && w % fiveBoxSize !== 0 && w !== totalUnits - (TARGET_MANIFEST_BOXES-1)*fiveBoxSize) continue;
+      const units = { East:e, Central:c, West:w };
+      if(fiveBoxSize){
+        const drift = totalUnits - (units.East+units.Central+units.West);
+        if(drift !== 0){
+          const biggest = Object.entries(units).sort((a,b)=>b[1]-a[1])[0][0];
+          units[biggest] += drift;
+        }
+      }
+      if(!meetsMinimumBatch(units, minBatch)) continue;
       const coverage = servedDemandCoverage(units, demandPct, totalUnits);
+      const mismatch = demandMismatch(units, demandPct, totalUnits);
+      if(coverage > maxCoverageSeen) maxCoverageSeen = coverage;
+      const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, fiveBoxSize || unitsPerBox);
+      if(locCount > MAX_MANIFEST_REGIONS) continue;
+      const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown, fiveBoxPlan: !!fiveBoxSize };
+      if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
       if(coverage < minCoveragePct - 1e-6) continue;
-      const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox);
-      if(!best || totalCost < best.totalCost - 1e-9) best = { units, totalCost, coverage, locCount, breakdown };
+      best = chooseBetterTwoTier(candidate, best);
     }
   }
+  if(!best && bestByCoverage) best = { ...bestByCoverage, coverageTargetUnreachable:true, maxAchievableCoverage:maxCoverageSeen };
+  if(best) best.singleRegionCoverage = oneRegionBestCoverage(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox)?.coverage;
   return best;
 }
 function buildParetoFrontier(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, steps, unitsPerBox, isRealCasePack){
@@ -1377,7 +1215,7 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
     const isRealCasePack = !!row.realUnitsPerBox; // true only for a real manifest/spec-sheet case pack, never the optimizer's own guessed box size
     const declaredBoxCount = (isRealCasePack && row.realNumberOfBoxes) ? row.realNumberOfBoxes : null;
 
-    let units, cost=null, coverage=null, breakdown=null, coverageTargetUnreachable=false, maxAchievableCoverage=null;
+    let units, cost=null, coverage=null, breakdown=null, coverageTargetUnreachable=false, maxAchievableCoverage=null, singleRegionCoverage=null, mismatch=null;
     if(method === 'lp'){
       const lp = lpOptimize(row.units, demandPct, row.sizeTier, feeRateTable, defaultFeePerUnit, minCoveragePct, null, effectiveUnitsPerBox, isRealCasePack, declaredBoxCount);
       units = lp ? lp.units : heuristicSplit(row.units, demandPct, isRealCasePack?effectiveUnitsPerBox:null, isRealCasePack?declaredBoxCount:null);
@@ -1386,6 +1224,8 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
       breakdown = lp ? lp.breakdown : null;
       coverageTargetUnreachable = lp ? !!lp.coverageTargetUnreachable : false;
       maxAchievableCoverage = lp ? (lp.maxAchievableCoverage!=null?lp.maxAchievableCoverage:null) : null;
+      singleRegionCoverage = lp ? lp.singleRegionCoverage : null;
+      mismatch = lp ? lp.mismatch : null;
     } else {
       units = heuristicSplit(row.units, demandPct, isRealCasePack?effectiveUnitsPerBox:null, isRealCasePack?declaredBoxCount:null);
       const costResult = computeSplitCost(units, row.sizeTier, feeRateTable, defaultFeePerUnit, effectiveUnitsPerBox);
@@ -1395,6 +1235,8 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
       // optimizer uses (servedDemandCoverage), so the executive summary
       // means the same thing regardless of which method is selected.
       coverage = servedDemandCoverage(units, demandPct, row.units);
+      singleRegionCoverage = oneRegionBestCoverage(row.units, demandPct, row.sizeTier, feeRateTable, defaultFeePerUnit, effectiveUnitsPerBox)?.coverage;
+      mismatch = demandMismatch(units, demandPct, row.units);
     }
     if(!breakdown){
       breakdown = computeSplitCost(units, row.sizeTier, feeRateTable, defaultFeePerUnit, effectiveUnitsPerBox).breakdown;
@@ -1408,13 +1250,16 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
     portfolioCheapestOnlyCost += cheapestOnly.totalCost;
     coverageWeightedSum += (coverage||0) * row.units;
 
-    plan.push({
+    const planRow = {
       sku: row.sku, units: row.units, sizeTier: row.sizeTier, hasSalesHistory: !!demand, demandPct,
       splitUnits: units, cost, coverage, packingLines: row.lines.length, lines: row.lines,
       realUnitsPerBox: row.realUnitsPerBox, effectiveUnitsPerBox, usedDefaultBoxSpec, sizeTierCrossCheck: row.sizeTierCrossCheck,
       specSheetMatch: row.specSheetMatch, isRealCasePack, coverageTargetUnreachable, maxAchievableCoverage,
-      boxBreakdown: breakdown, cheapestOnlyCost: cheapestOnly.totalCost, cheapestOnlyRegion: cheapestOnly.region, costDelta
-    });
+      boxBreakdown: breakdown, cheapestOnlyCost: cheapestOnly.totalCost, cheapestOnlyRegion: cheapestOnly.region, costDelta,
+      singleRegionCoverage, mismatch, confidence: demand && demand.totalUnits >= 14 ? 'high' : 'low', rationale: null
+    };
+    planRow.rationale = manifestRationale(planRow);
+    plan.push(planRow);
   }
 
   const totalPortfolioUnits = portfolioUnits.East + portfolioUnits.Central + portfolioUnits.West;
@@ -1441,7 +1286,7 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
    APPLICATION STATE
    ============================================================ */
 const state = {
-  filesRaw: { sales:null, fees:null, inventory:null, manifest:null, specsheet:null, packinglist:null },
+  filesRaw: { sales:null, salesFiles:[], fees:null, inventory:null, manifest:null, specsheet:null, packinglist:null },
   detectedHeaders: { sales:null, fees:null, inventory:null, manifest:null, specsheet:null },
   salesAdapted: null, feeAdapted: null, inventoryAdapted: null,
   demand: null, feeRateTable: null, defaultFeePerUnit: 0.4,
@@ -1464,6 +1309,7 @@ const state = {
    a hyphen-delimited prefix; the remainder (malformed/placeholder SKUs
    like "Uncommingled.MSKU...") get bucketed into an explicit
    "Unidentified" group rather than silently dropped or crashing. */
+function normalizeSkuKey(sku){ return String(sku||'').trim().toUpperCase(); }
 function extractVendorPrefix(sku){
   if(!sku) return 'Unidentified';
   const idx = sku.indexOf('-');
@@ -1481,8 +1327,12 @@ function getActiveSkuSet(){
   let skus = Object.keys(state.demand);
   if(state.scopeMode === 'manifest'){
     if(!state.manifestPlan || !state.manifestPlan.length) return new Set(); // manifest mode selected but nothing built yet -> empty scope, not silently "all"
-    const manifestSkus = new Set(state.manifestPlan.map(r=>r.sku));
-    skus = skus.filter(s=>manifestSkus.has(s));
+    const manifestSkus = new Set(state.manifestPlan.map(r=>normalizeSkuKey(r.sku)));
+    skus = skus.filter(s=>manifestSkus.has(normalizeSkuKey(s)));
+    if(!skus.length){
+      const manifestVendors = new Set(state.manifestPlan.map(r=>extractVendorPrefix(r.sku)).filter(v=>v !== 'Unidentified'));
+      skus = Object.keys(state.demand).filter(s=>manifestVendors.has(extractVendorPrefix(s)));
+    }
   }
   if(state.globalVendorFilter !== 'all'){
     skus = skus.filter(s=>extractVendorPrefix(s)===state.globalVendorFilter);
@@ -1749,23 +1599,34 @@ function wireUploadZone(kind, inputId, zoneId){
   zone.addEventListener('dragleave', ()=> zone.classList.remove('dragover'));
   zone.addEventListener('drop', (e)=>{
     e.preventDefault(); zone.classList.remove('dragover');
-    if(e.dataTransfer.files.length) handleFileSelected(kind, e.dataTransfer.files[0], zone);
+    if(e.dataTransfer.files.length) handleFileSelected(kind, kind === 'sales' ? Array.from(e.dataTransfer.files).slice(0,6) : e.dataTransfer.files[0], zone);
   });
-  input.addEventListener('change', ()=>{ if(input.files.length) handleFileSelected(kind, input.files[0], zone); });
+  input.addEventListener('change', ()=>{ if(input.files.length) handleFileSelected(kind, kind === 'sales' ? Array.from(input.files).slice(0,6) : input.files[0], zone); });
   zone.querySelector('.uz-clear')?.addEventListener('click', (e)=>{
     e.stopPropagation();
     state.filesRaw[kind] = null;
+      if(kind === 'sales') state.filesRaw.salesFiles = [];
     zone.classList.remove('has-file');
     zone.querySelector('.uz-filename').textContent = '';
     input.value = '';
   });
 }
 async function handleFileSelected(kind, file, zone){
-  state.filesRaw[kind] = file;
+  if(kind === 'sales' && Array.isArray(file)){
+    state.filesRaw.salesFiles = file.slice(0, 6);
+    state.filesRaw.sales = state.filesRaw.salesFiles[0] || null;
+  } else {
+    state.filesRaw[kind] = file;
+  }
   zone.classList.add('has-file');
   zone.classList.add('detecting');
-  const fmt = isExcelFile(file) ? 'XLSX' : 'CSV';
-  zone.querySelector('.uz-filename').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB · ' + fmt;
+  const fmt = Array.isArray(file) ? 'mixed' : (isExcelFile(file) ? 'XLSX' : 'CSV');
+  if(kind === 'sales' && Array.isArray(file)){
+    const totalSize = file.reduce((sum,f)=>sum+f.size,0);
+    zone.querySelector('.uz-filename').textContent = `${file.length} sales files · ${(totalSize/1024/1024).toFixed(2)} MB total`;
+  } else {
+    zone.querySelector('.uz-filename').textContent = file.name + ' · ' + (file.size/1024/1024).toFixed(2) + ' MB · ' + fmt;
+  }
   if(kind === 'packinglist'){
     // Packing lists use their own dedicated parser (triggered by the
     // "Parse packing list" button, which also needs the vendor prefix
@@ -1783,11 +1644,12 @@ async function handleFileSelected(kind, file, zone){
   } else {
     mapBox.innerHTML = '<span class="uz-colmap-loading">Detecting columns…</span>';
   }
-  toast(file.name + ' ready');
+  toast(kind === 'sales' && Array.isArray(file) ? `${file.length} sales files ready` : file.name + ' ready');
   const schemaKeyForKind = kind === 'sales' ? 'sales' : kind === 'fees' ? 'fees' : kind === 'inventory' ? 'inventory' : kind === 'specsheet' ? 'specsheet' : 'manifest';
   try{
     const loader = kind === 'specsheet' ? loadMultiSheetTabularFile : loadTabularFile;
-    const { headers, sheetName, headerRow, sheetAutoDetectFailed, noDataRowsFound, sheetsUsed } = await loader(file, schemaKeyForKind);
+    const headerFile = (kind === 'sales' && Array.isArray(file)) ? file[0] : file;
+    const { headers, sheetName, headerRow, sheetAutoDetectFailed, noDataRowsFound, sheetsUsed } = await loader(headerFile, schemaKeyForKind);
     state.detectedHeaders[kind] = headers;
     renderColumnMap(kind, zone, headers, { sheetName, headerRow, sheetAutoDetectFailed, noDataRowsFound, sheetsUsed });
   } catch(err){
@@ -1842,6 +1704,7 @@ wireUploadZone('packinglist','file-packinglist','uz-packinglist');
 document.getElementById('clearAllBtn').addEventListener('click', ()=>{
   ['sales','fees','inventory'].forEach(kind=>{
     state.filesRaw[kind] = null;
+      if(kind === 'sales') state.filesRaw.salesFiles = [];
     document.getElementById('uz-'+kind).classList.remove('has-file');
     document.getElementById('uz-'+kind).querySelector('.uz-filename').textContent = '';
     document.getElementById('file-'+kind).value = '';
@@ -1882,20 +1745,29 @@ async function runAnalysis(){
   }
 
   try{
-    if(state.filesRaw.sales){
-      logLine(log, 'Sales file', 'reading…');
-      const { objects, encoding, format } = await loadTabularFile(state.filesRaw.sales, 'sales');
+    if(state.filesRaw.sales || (state.filesRaw.salesFiles && state.filesRaw.salesFiles.length)){
+      const salesFiles = state.filesRaw.salesFiles && state.filesRaw.salesFiles.length ? state.filesRaw.salesFiles : [state.filesRaw.sales];
+      logLine(log, 'Sales files', `reading ${salesFiles.length} file${salesFiles.length===1?'':'s'}…`);
+      let allRecords = [], totalRaw = 0, kept = 0, droppedNonUS = 0, droppedUnresolvedState = 0, droppedStatus = 0, formats = new Set(), encodings = new Set();
+      for(const salesFile of salesFiles){
+        const { objects, encoding, format } = await loadTabularFile(salesFile, 'sales');
+        const { records, stats } = adaptSalesRows(objects);
+        allRecords = allRecords.concat(records);
+        totalRaw += stats.totalRaw; kept += stats.kept;
+        droppedNonUS += stats.droppedNonUS; droppedUnresolvedState += stats.droppedUnresolvedState; droppedStatus += stats.droppedStatus;
+        formats.add(format === 'excel' ? 'Excel (.xlsx)' : 'CSV');
+        if(format === 'csv') encodings.add(encoding);
+      }
       fill.style.width = '30%';
-      const { records, stats } = adaptSalesRows(objects);
-      state.salesAdapted = records;
+      state.salesAdapted = allRecords;
       log.innerHTML = '';
-      logLine(log, 'Sales file format', format === 'excel' ? 'Excel (.xlsx)' : 'CSV', 'good');
-      if(format === 'csv') logLine(log, 'Sales encoding detected', encoding, encoding.includes('fallback') ? 'warn' : 'good');
-      logLine(log, 'Sales rows parsed', `<b>${stats.totalRaw.toLocaleString()}</b>`);
-      logLine(log, 'Kept (US, resolvable state, valid qty)', `<b>${stats.kept.toLocaleString()}</b>`, 'good');
-      if(stats.droppedNonUS) logLine(log, 'Dropped — non-US', stats.droppedNonUS.toLocaleString(), 'warn');
-      if(stats.droppedUnresolvedState) logLine(log, 'Dropped — unresolvable state (military/intl)', stats.droppedUnresolvedState.toLocaleString(), 'warn');
-      if(stats.droppedStatus) logLine(log, 'Dropped — excluded status', stats.droppedStatus.toLocaleString(), 'warn');
+      logLine(log, 'Sales uploads merged', `<b>${salesFiles.length}</b> file${salesFiles.length===1?'':'s'} (${formats.size ? Array.from(formats).join(', ') : 'unknown'})`, 'good');
+      if(encodings.size) logLine(log, 'Sales encoding detected', Array.from(encodings).join(', '), Array.from(encodings).some(e=>e.includes('fallback')) ? 'warn' : 'good');
+      logLine(log, 'Sales rows parsed', `<b>${totalRaw.toLocaleString()}</b>`);
+      logLine(log, 'Kept (US, resolvable state, valid qty)', `<b>${kept.toLocaleString()}</b>`, 'good');
+      if(droppedNonUS) logLine(log, 'Dropped — non-US', droppedNonUS.toLocaleString(), 'warn');
+      if(droppedUnresolvedState) logLine(log, 'Dropped — unresolvable state (military/intl)', droppedUnresolvedState.toLocaleString(), 'warn');
+      if(droppedStatus) logLine(log, 'Dropped — excluded status', droppedStatus.toLocaleString(), 'warn');
     }
     fill.style.width = '55%';
 
@@ -2075,6 +1947,7 @@ function renderAll(){
   renderFrontierSelect();
   renderSkuAnalysis();
   renderVendorAnalysis();
+  renderManifestAnalytics();
   initAllChartInteractivity();
 }
 
@@ -3303,6 +3176,55 @@ function renderExecSummary(portfolio, summary){
     </div>`;
 }
 
+
+function renderManifestAnalytics(){
+  const mapEl = document.getElementById('manifestRegionMap');
+  const insightsEl = document.getElementById('manifestAnalyticsInsights');
+  if(!mapEl || !insightsEl) return;
+  if(!state.manifestPlan || !state.manifestPlan.length || !state.manifestPortfolio){
+    mapEl.className = 'region-map-empty';
+    mapEl.innerHTML = 'Build a Manifest plan first.';
+    insightsEl.className = 'analytics-insights-empty';
+    insightsEl.innerHTML = 'No active manifest plan yet.';
+    return;
+  }
+  const p = state.manifestPortfolio;
+  const maxUnits = Math.max(1, p.units.East||0, p.units.Central||0, p.units.West||0);
+  const regionCost = { East:0, Central:0, West:0 };
+  const regionSkuCount = { East:0, Central:0, West:0 };
+  state.manifestPlan.forEach(row=>{
+    ['East','Central','West'].forEach(region=>{
+      const units = row.splitUnits[region]||0;
+      if(units>0){ regionCost[region] += row.boxBreakdown?.[region]?.cost || 0; regionSkuCount[region]++; }
+    });
+  });
+  mapEl.className = 'manifest-region-map';
+  mapEl.innerHTML = ['East','Central','West'].map(region=>{
+    const units = p.units[region]||0;
+    const pct = p.pct[region]||0;
+    const cpu = units ? regionCost[region]/units : 0;
+    const scale = 0.72 + (units/maxUnits)*0.28;
+    return `<div class="region-node ${region.toLowerCase()}" style="transform:scale(${scale.toFixed(2)});">
+      <div class="region-node-label">${region}</div>
+      <div class="region-node-value">${units.toLocaleString()}</div>
+      <div class="region-node-sub">${fmtPct(pct)} of units · ${fmtMoney(cpu)}/unit</div>
+      <div class="region-node-foot">${regionSkuCount[region]} SKU${regionSkuCount[region]===1?'':'s'}</div>
+    </div>`;
+  }).join('');
+  const topRegion = Object.entries(p.units).sort((a,b)=>b[1]-a[1])[0];
+  const usedCounts = state.manifestPlan.map(r=>countUsedRegions(r.splitUnits));
+  const overTwo = usedCounts.filter(c=>c>2).length;
+  const avgSplit = usedCounts.reduce((a,b)=>a+b,0)/usedCounts.length;
+  const savings = p.cheapestOnlyCost - p.totalCost;
+  insightsEl.className = 'analytics-insights';
+  insightsEl.innerHTML = `
+    <div class="insight-row"><span>Primary ship-to region</span><b>${topRegion[0]} · ${fmtPct(topRegion[1]/Math.max(1,(p.units.East+p.units.Central+p.units.West)))}</b></div>
+    <div class="insight-row"><span>Split discipline</span><b>${avgSplit.toFixed(1)} regions/SKU · ${overTwo} over the 2-region cap</b></div>
+    <div class="insight-row"><span>Demand match</span><b>${p.weightedAvgCoverage!=null?fmtPct(p.weightedAvgCoverage):'—'}</b></div>
+    <div class="insight-row"><span>Placement-fee delta</span><b style="color:${savings>=0?'var(--good)':'var(--danger)'}">${savings>=0?'+':''}${fmtMoney(savings)} vs. single-region baseline</b></div>
+    <div class="insight-callout">Recommendation: ship the manifest mostly to <b>${topRegion[0]}</b>, keep SKU-level plans capped at two regions unless case-pack math forces otherwise, and use the downloadable per-region files from the Manifest tab for execution.</div>`;
+}
+
 function renderManifestKpis(summary){
   const grid = document.getElementById('manifestKpis');
   const lineNote = summary.totalPackingLines > summary.totalSkus
@@ -3432,17 +3354,17 @@ function buildDecisionBadge(row){
 
   if(hasRealCasePack && totalBoxes === 1){
     const bestRegion = Object.entries(row.splitUnits).sort((a,b)=>b[1]-a[1])[0][0];
-    return `<span class="decision-badge case-single" title="Single sealed box — sent to ${bestRegion} (highest real demand region). Cannot split a sealed box.">📦 1 box → ${bestRegion} (best demand)</span>`;
+    return `<span class="decision-badge case-single" title="${row.rationale}">📦 1 box → ${bestRegion} (best demand)</span>`;
   }
   if(hasRealCasePack && totalBoxes > 1){
-    return `<span class="decision-badge case-multi" title="${totalBoxes} real case-pack boxes, split across ${regionsUsed} region${regionsUsed===1?'':'s'} by demand. Each region gets whole boxes only.">${totalBoxes} boxes → ${regionsUsed} region${regionsUsed===1?'':'s'}</span>`;
+    return `<span class="decision-badge case-multi" title="${row.rationale}">${totalBoxes} boxes → ${regionsUsed} region${regionsUsed===1?'':'s'}</span>`;
   }
   if(!hasRealCasePack && regionsUsed === 1){
     const onlyRegion = ['East','Central','West'].find(r=>row.splitUnits[r]>0);
-    return `<span class="decision-badge free-single" title="No case-pack constraint — sent all to ${onlyRegion} (demand + cost optimal).">Demand → ${onlyRegion} only</span>`;
+    return `<span class="decision-badge free-single" title="${row.rationale}">Demand → ${onlyRegion} only</span>`;
   }
   if(!hasRealCasePack){
-    return `<span class="decision-badge free-multi" title="No case-pack constraint — split across ${regionsUsed} regions for best demand coverage + cost.">Demand → ${regionsUsed} regions</span>`;
+    return `<span class="decision-badge free-multi" title="${row.rationale}">Demand → ${regionsUsed} regions</span>`;
   }
   return '';
 }
@@ -3461,6 +3383,9 @@ function renderManifestTable(plan){
     const savingsAbs = row.costDelta != null ? Math.abs(row.costDelta) : 0;
     const savingsIcon = row.costDelta == null ? '' : row.costDelta < -0.01 ? `<span style="color:var(--good);font-size:10px;margin-left:4px;">▼ saving</span>` : row.costDelta > 0.01 ? `<span style="color:var(--danger);font-size:10px;margin-left:4px;">▲ premium</span>` : `<span style="color:var(--ink-faint);font-size:10px;margin-left:4px;">= same</span>`;
     const decisionBadge = buildDecisionBadge(row);
+    const confidenceBadge = row.confidence === 'low'
+      ? '<span class="badge" style="background:var(--danger-soft);color:var(--danger);margin-left:6px;" title="Fewer than 14 sold units in the sales history for this SKU — recommendation is directionally useful, not high-confidence.">Low confidence</span>'
+      : '<span class="badge" style="background:var(--good-soft);color:var(--good);margin-left:6px;">High confidence</span>';
     const mainRow = document.createElement('tr');
     mainRow.innerHTML = `
       <td><span class="mtr-toggle" data-idx="${idx}">▸</span></td>
@@ -3472,7 +3397,7 @@ function renderManifestTable(plan){
       <td class="num">${row.cost!=null?fmtMoney(row.cost):'—'}</td>
       <td class="num">${fmtMoney(row.cheapestOnlyCost)}</td>
       <td class="num" style="color:${deltaColor};font-weight:600;">${deltaText}${savingsIcon}</td>
-      <td>${decisionBadge}</td>`;
+      <td>${decisionBadge}${confidenceBadge}<div style="font-size:11px;color:var(--ink-faint);margin-top:5px;max-width:360px;">${row.rationale}</div></td>`;
     tbody.appendChild(mainRow);
 
     const detailRow = document.createElement('tr');
@@ -3858,7 +3783,7 @@ ${dataSection}
 PROJECT BRIEF:
 - Problem: Amazon's placement algorithm does NOT have a regional bias — it cost-minimizes within whatever split option the seller picks. The real gap is the seller never had demand data feeding that choice. This tool is decision-SUPPORT, not "fixing" Amazon's algorithm.
 - This is a fully client-side tool: all parsing, adapting, and optimization runs in the browser on real uploaded CSVs. No server, no backend persistence beyond localStorage.
-- Three regions: East, Central, West. Decision methods: Heuristic (proportional to demand %) and LP Optimizer (grid-search over the 3-region simplex, finds the genuinely cheapest split at a chosen minimum demand-coverage level, correctly models Amazon's real 2026 carton-identity placement fee rule: 5+ identical cartons per item per region qualifies for $0 fee, otherwise the full minimal-split rate applies).
+- Three regions: East, Central, West. Decision methods: Heuristic (proportional to demand %) and Two-pass Optimizer (minimizes split count first, then fixes that split count and minimizes regional demand mismatch while still showing Amazon placement fee deltas).
 - Cost model uses REAL average fee-per-unit by region x size tier, derived directly from the user's uploaded placement fee log — not invented numbers.
 - Restock/destock signals are computed by a deterministic rules engine (real sales velocity from real date spans, real on-hand inventory when uploaded) — never invented, and explicitly distinguishes "real days of stock" (when inventory data exists) from "velocity tier only" (when it doesn't).
 - Sell-through correction (dividing sold units by on-hand units per region) only activates if BOTH an inventory file is uploaded AND the user toggles it on.
@@ -4012,7 +3937,7 @@ document.addEventListener('mouseleave', ()=>vistaTooltip.hide());
   const explainer = document.getElementById('methodExplainer');
   const EXPLAINERS = {
     heuristic: `<b>Best demand match</b> is selected. Each SKU will be split proportionally to your real sales data — no cost optimization. This is the right choice if you want predictable inventory placement that mirrors exactly where your customers actually bought from. You may pay slightly more in placement fees than necessary, but every region gets stocked in proportion to its real pull. <b>Savings: $0 vs. demand baseline — this mode doesn't optimize fees.</b>`,
-    lp: `<b>Lowest placement cost</b> is selected. The optimizer searches every valid box-split combination for each SKU and picks the one that minimizes your total Amazon placement fee — using Amazon's real rule: 5+ identical boxes per SKU per region = $0 fee, fewer = per-unit fee. The "minimum demand coverage" slider below lets you control the trade-off: higher % = prioritize meeting demand even if it costs more, lower % = prioritize $0 fees even if some regions get less stock. <b>Typical savings: 10–30% on placement fees vs. demand-only split.</b>`,
+    lp: `<b>Two-pass split optimization</b> is selected. Pass 1 minimizes the number of shipment splits. Pass 2 fixes that split count and minimizes regional demand mismatch, while enforcing a sensible minimum batch so the plan never creates trickle shipments. Placement fees remain visible as the cost delta against the single-region baseline.`,
   };
   options.forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -4190,16 +4115,6 @@ function handleGlobalAsk(){
 }
 globalSend.addEventListener('click', handleGlobalAsk);
 globalInput.addEventListener('keydown', e=>{ if(e.key==='Enter') handleGlobalAsk(); });
-
-/* ---------------------------- LIVE CLOCK ---------------------------- */
-function updateClock(){
-  const el = document.getElementById('liveClock');
-  if(!el) return;
-  const now = new Date();
-  el.textContent = now.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit', second:'2-digit' });
-}
-updateClock();
-setInterval(updateClock, 1000);
 
 /* ---------------------------- SUBTLE 3D CARD TILT ---------------------------- */
 /* A real, mouse-tracked perspective tilt on KPI cards — kept deliberately
