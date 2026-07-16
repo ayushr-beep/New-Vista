@@ -1147,6 +1147,23 @@ function servedDemandCoverage(units, demandPct, totalUnits){
   return 1 - (shortfall/totalUnits);
 }
 
+const MIN_REGION_BATCH_UNITS = 10;
+function demandMismatch(units, demandPct, totalUnits){
+  if(totalUnits<=0) return 0;
+  return ['East','Central','West'].reduce((sum,region)=>sum+Math.abs((units[region]||0)-(demandPct[region]||0)*totalUnits),0)/totalUnits;
+}
+function countUsedRegions(units){ return ['East','Central','West'].filter(r=>(units[r]||0)>0).length; }
+function meetsMinimumBatch(units, batchSize){
+  return ['East','Central','West'].every(r => !units[r] || units[r] >= batchSize);
+}
+function manifestRationale(row){
+  const splitCount = countUsedRegions(row.splitUnits);
+  const match = row.coverage!=null ? fmtPct(row.coverage) : '—';
+  const oneRegionCoverage = row.singleRegionCoverage!=null ? fmtPct(row.singleRegionCoverage) : '—';
+  const leader = Object.entries(row.demandPct).sort((a,b)=>b[1]-a[1])[0];
+  return `${splitCount} shipment${splitCount===1?'':'s'} recommended — matches ${match} of regional demand vs. ${oneRegionCoverage} for a 1-shipment plan, given ${leader[0]}'s ${Math.max(1, leader[1]*3).toFixed(1)}x average demand share.`;
+}
+
 /* Real LP optimizer. When isRealCasePack is true, searches over whole
    BOX counts per region (the only physically valid allocation space for
    a sealed case-packed item) instead of arbitrary unit fractions. Single-
@@ -1157,95 +1174,89 @@ function servedDemandCoverage(units, demandPct, totalUnits){
    mathematically unreachable (e.g. 2 boxes split across 3 regions can
    never hit 85% coverage) — that is reported explicitly via
    maxAchievableCoverage, never silently approximated. */
+function chooseBetterTwoTier(candidate, best){
+  if(!best) return candidate;
+  if(candidate.locCount !== best.locCount) return candidate.locCount < best.locCount ? candidate : best;
+  if(candidate.mismatch !== best.mismatch) return candidate.mismatch < best.mismatch - 1e-9 ? candidate : best;
+  return candidate.totalCost < best.totalCost - 1e-9 ? candidate : best;
+}
+function oneRegionBestCoverage(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox){
+  let best = null;
+  for(const region of ['East','Central','West']){
+    const units = { East:0, Central:0, West:0 };
+    units[region] = totalUnits;
+    const coverage = servedDemandCoverage(units, demandPct, totalUnits);
+    const costResult = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox);
+    const candidate = { region, units, coverage, totalCost:costResult.totalCost };
+    if(!best || coverage > best.coverage + 1e-9 || (Math.abs(coverage-best.coverage)<1e-9 && candidate.totalCost < best.totalCost)) best = candidate;
+  }
+  return best;
+}
+
+/* Two-pass MILP-equivalent optimizer for VISTA's three-region static build.
+   Pass 1 minimizes the number of used regions (binary y_r). Pass 2 fixes
+   that minimum split count and minimizes absolute demand mismatch. The
+   exhaustive search is equivalent to the tiny MILP domain here and avoids a
+   backend while preserving the business priority order from the spec. */
 function lpOptimize(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, minCoveragePct, gridStep, unitsPerBox, isRealCasePack, declaredBoxCount){
+  const minBatch = Math.min(MIN_REGION_BATCH_UNITS, totalUnits);
+  let best = null, bestByCoverage = null, maxCoverageSeen = 0;
+
   if(isRealCasePack && unitsPerBox && unitsPerBox>0){
-    // Real declared box count from the manifest is the ground truth for
-    // how many physical boxes exist — never recomputed by division alone.
-    // When the vendor's quantity doesn't divide evenly by units/box
-    // (e.g. 171 units in 4 boxes, where 4 boxes don't multiply out to
-    // exactly 171), the declared box count still wins for the identical
-    // portion, and the real leftover becomes one additional remainder
-    // box that travels with whichever region gets it — never silently
-    // recomputed into a different box count or box size.
     let totalBoxes, remainderUnits = 0;
     if(declaredBoxCount && declaredBoxCount>0){
       totalBoxes = declaredBoxCount;
       remainderUnits = totalUnits - (unitsPerBox*declaredBoxCount);
-      if(remainderUnits < 0){
-        // Declared boxes*unitsPerBox exceeds real quantity -- the
-        // manifest's own numbers don't reconcile; fall back to pure
-        // division rather than search a box count larger than what
-        // could possibly exist.
-        totalBoxes = Math.floor(totalUnits/unitsPerBox);
-        remainderUnits = totalUnits % unitsPerBox;
-      }
+      if(remainderUnits < 0){ totalBoxes = Math.floor(totalUnits/unitsPerBox); remainderUnits = totalUnits % unitsPerBox; }
     } else if(totalUnits % unitsPerBox === 0){
       totalBoxes = totalUnits/unitsPerBox;
     } else {
       totalBoxes = Math.floor(totalUnits/unitsPerBox);
       remainderUnits = totalUnits % unitsPerBox;
     }
-
-    let best = null, bestByCoverage = null, maxCoverageSeen = 0;
     for(let e=0; e<=totalBoxes; e++){
       for(let c=0; c<=totalBoxes-e; c++){
         const w = totalBoxes-e-c;
         const units = { East:e*unitsPerBox, Central:c*unitsPerBox, West:w*unitsPerBox };
-        // The real remainder (if any) always rides with whichever region
-        // already has the most identical boxes — it's physically one
-        // more box, not a unit that can float independently.
-        if(remainderUnits>0){
-          const biggest = e>=c && e>=w ? 'East' : c>=w ? 'Central' : 'West';
-          units[biggest] += remainderUnits;
-        }
+        if(remainderUnits>0){ const biggest = e>=c && e>=w ? 'East' : c>=w ? 'Central' : 'West'; units[biggest] += remainderUnits; }
+        if(!meetsMinimumBatch(units, minBatch)) continue;
         const coverage = servedDemandCoverage(units, demandPct, totalUnits);
+        const mismatch = demandMismatch(units, demandPct, totalUnits);
         if(coverage > maxCoverageSeen) maxCoverageSeen = coverage;
         const perRegionBoxCounts = { East:e, Central:c, West:w };
         const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox, perRegionBoxCounts);
-        // Track best by coverage (primary) then cost (tiebreak) — this is the
-        // correct fallback when the coverage target is unreachable. Giving up
-        // on demand coverage in favour of a cheaper split defeats the purpose.
-        if(!bestByCoverage
-          || coverage > bestByCoverage.coverage + 1e-6
-          || (Math.abs(coverage - bestByCoverage.coverage) < 1e-6 && totalCost < bestByCoverage.totalCost - 1e-9)){
-          bestByCoverage = { units, totalCost, coverage, locCount, breakdown };
-        }
+        const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown };
+        if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
         if(coverage < minCoveragePct - 1e-6) continue;
-        if(!best || totalCost < best.totalCost - 1e-9) best = { units, totalCost, coverage, locCount, breakdown };
+        best = chooseBetterTwoTier(candidate, best);
       }
     }
-    if(!best && bestByCoverage){
-      // Requested coverage floor is mathematically unreachable at this
-      // case-pack granularity. Return the split with the BEST DEMAND COVERAGE
-      // achievable — not the cheapest. When you have only 2 boxes and can't
-      // hit 85%, the right answer is Central+West (72.4% coverage) not
-      // East-only (28.3% coverage just because it's cheaper).
-      return { ...bestByCoverage, coverageTargetUnreachable: true, maxAchievableCoverage: maxCoverageSeen };
-    }
+    if(!best && bestByCoverage) return { ...bestByCoverage, coverageTargetUnreachable:true, maxAchievableCoverage:maxCoverageSeen };
+    if(best) best.singleRegionCoverage = oneRegionBestCoverage(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox)?.coverage;
     return best;
   }
 
-  let best = null;
-  gridStep = gridStep || (totalUnits>200 ? 0.05 : 0.02);
-  for(let a=0; a<=1.0001; a+=gridStep){
-    for(let b=0; b<=1.0001-a; b+=gridStep){
-      const c = 1-a-b;
-      if(c < -1e-6) continue;
-      const frac = { East:a, Central:b, West:Math.max(c,0) };
-      const units = {
-        East: Math.round(totalUnits*frac.East),
-        Central: Math.round(totalUnits*frac.Central),
-        West: Math.round(totalUnits*frac.West),
-      };
+  const step = totalUnits <= 300 ? 1 : Math.max(5, Math.ceil(totalUnits/200));
+  for(let e=0; e<=totalUnits; e+=step){
+    for(let c=0; c<=totalUnits-e; c+=step){
+      let w = totalUnits-e-c;
+      if(w<0) continue;
+      const units = { East:e, Central:c, West:w };
       const drift = totalUnits - (units.East+units.Central+units.West);
       if(drift !== 0) units.West += drift;
-      if(units.East<0||units.Central<0||units.West<0) continue;
+      if(!meetsMinimumBatch(units, minBatch)) continue;
       const coverage = servedDemandCoverage(units, demandPct, totalUnits);
-      if(coverage < minCoveragePct - 1e-6) continue;
+      const mismatch = demandMismatch(units, demandPct, totalUnits);
+      if(coverage > maxCoverageSeen) maxCoverageSeen = coverage;
       const { totalCost, locCount, breakdown } = computeSplitCost(units, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox);
-      if(!best || totalCost < best.totalCost - 1e-9) best = { units, totalCost, coverage, locCount, breakdown };
+      const candidate = { units, totalCost, coverage, mismatch, locCount, breakdown };
+      if(!bestByCoverage || coverage > bestByCoverage.coverage + 1e-6 || (Math.abs(coverage-bestByCoverage.coverage)<1e-6 && mismatch < bestByCoverage.mismatch)) bestByCoverage = candidate;
+      if(coverage < minCoveragePct - 1e-6) continue;
+      best = chooseBetterTwoTier(candidate, best);
     }
   }
+  if(!best && bestByCoverage) best = { ...bestByCoverage, coverageTargetUnreachable:true, maxAchievableCoverage:maxCoverageSeen };
+  if(best) best.singleRegionCoverage = oneRegionBestCoverage(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, unitsPerBox)?.coverage;
   return best;
 }
 function buildParetoFrontier(totalUnits, demandPct, sizeTier, feeRateTable, defaultFeePerUnit, steps, unitsPerBox, isRealCasePack){
@@ -1377,7 +1388,7 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
     const isRealCasePack = !!row.realUnitsPerBox; // true only for a real manifest/spec-sheet case pack, never the optimizer's own guessed box size
     const declaredBoxCount = (isRealCasePack && row.realNumberOfBoxes) ? row.realNumberOfBoxes : null;
 
-    let units, cost=null, coverage=null, breakdown=null, coverageTargetUnreachable=false, maxAchievableCoverage=null;
+    let units, cost=null, coverage=null, breakdown=null, coverageTargetUnreachable=false, maxAchievableCoverage=null, singleRegionCoverage=null, mismatch=null;
     if(method === 'lp'){
       const lp = lpOptimize(row.units, demandPct, row.sizeTier, feeRateTable, defaultFeePerUnit, minCoveragePct, null, effectiveUnitsPerBox, isRealCasePack, declaredBoxCount);
       units = lp ? lp.units : heuristicSplit(row.units, demandPct, isRealCasePack?effectiveUnitsPerBox:null, isRealCasePack?declaredBoxCount:null);
@@ -1386,6 +1397,8 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
       breakdown = lp ? lp.breakdown : null;
       coverageTargetUnreachable = lp ? !!lp.coverageTargetUnreachable : false;
       maxAchievableCoverage = lp ? (lp.maxAchievableCoverage!=null?lp.maxAchievableCoverage:null) : null;
+      singleRegionCoverage = lp ? lp.singleRegionCoverage : null;
+      mismatch = lp ? lp.mismatch : null;
     } else {
       units = heuristicSplit(row.units, demandPct, isRealCasePack?effectiveUnitsPerBox:null, isRealCasePack?declaredBoxCount:null);
       const costResult = computeSplitCost(units, row.sizeTier, feeRateTable, defaultFeePerUnit, effectiveUnitsPerBox);
@@ -1395,6 +1408,8 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
       // optimizer uses (servedDemandCoverage), so the executive summary
       // means the same thing regardless of which method is selected.
       coverage = servedDemandCoverage(units, demandPct, row.units);
+      singleRegionCoverage = oneRegionBestCoverage(row.units, demandPct, row.sizeTier, feeRateTable, defaultFeePerUnit, effectiveUnitsPerBox)?.coverage;
+      mismatch = demandMismatch(units, demandPct, row.units);
     }
     if(!breakdown){
       breakdown = computeSplitCost(units, row.sizeTier, feeRateTable, defaultFeePerUnit, effectiveUnitsPerBox).breakdown;
@@ -1408,13 +1423,16 @@ function buildManifestPlan(manifestRecords, demandBySku, feeRateTable, defaultFe
     portfolioCheapestOnlyCost += cheapestOnly.totalCost;
     coverageWeightedSum += (coverage||0) * row.units;
 
-    plan.push({
+    const planRow = {
       sku: row.sku, units: row.units, sizeTier: row.sizeTier, hasSalesHistory: !!demand, demandPct,
       splitUnits: units, cost, coverage, packingLines: row.lines.length, lines: row.lines,
       realUnitsPerBox: row.realUnitsPerBox, effectiveUnitsPerBox, usedDefaultBoxSpec, sizeTierCrossCheck: row.sizeTierCrossCheck,
       specSheetMatch: row.specSheetMatch, isRealCasePack, coverageTargetUnreachable, maxAchievableCoverage,
-      boxBreakdown: breakdown, cheapestOnlyCost: cheapestOnly.totalCost, cheapestOnlyRegion: cheapestOnly.region, costDelta
-    });
+      boxBreakdown: breakdown, cheapestOnlyCost: cheapestOnly.totalCost, cheapestOnlyRegion: cheapestOnly.region, costDelta,
+      singleRegionCoverage, mismatch, confidence: demand && demand.totalUnits >= 14 ? 'high' : 'low', rationale: null
+    };
+    planRow.rationale = manifestRationale(planRow);
+    plan.push(planRow);
   }
 
   const totalPortfolioUnits = portfolioUnits.East + portfolioUnits.Central + portfolioUnits.West;
@@ -3432,17 +3450,17 @@ function buildDecisionBadge(row){
 
   if(hasRealCasePack && totalBoxes === 1){
     const bestRegion = Object.entries(row.splitUnits).sort((a,b)=>b[1]-a[1])[0][0];
-    return `<span class="decision-badge case-single" title="Single sealed box — sent to ${bestRegion} (highest real demand region). Cannot split a sealed box.">📦 1 box → ${bestRegion} (best demand)</span>`;
+    return `<span class="decision-badge case-single" title="${row.rationale}">📦 1 box → ${bestRegion} (best demand)</span>`;
   }
   if(hasRealCasePack && totalBoxes > 1){
-    return `<span class="decision-badge case-multi" title="${totalBoxes} real case-pack boxes, split across ${regionsUsed} region${regionsUsed===1?'':'s'} by demand. Each region gets whole boxes only.">${totalBoxes} boxes → ${regionsUsed} region${regionsUsed===1?'':'s'}</span>`;
+    return `<span class="decision-badge case-multi" title="${row.rationale}">${totalBoxes} boxes → ${regionsUsed} region${regionsUsed===1?'':'s'}</span>`;
   }
   if(!hasRealCasePack && regionsUsed === 1){
     const onlyRegion = ['East','Central','West'].find(r=>row.splitUnits[r]>0);
-    return `<span class="decision-badge free-single" title="No case-pack constraint — sent all to ${onlyRegion} (demand + cost optimal).">Demand → ${onlyRegion} only</span>`;
+    return `<span class="decision-badge free-single" title="${row.rationale}">Demand → ${onlyRegion} only</span>`;
   }
   if(!hasRealCasePack){
-    return `<span class="decision-badge free-multi" title="No case-pack constraint — split across ${regionsUsed} regions for best demand coverage + cost.">Demand → ${regionsUsed} regions</span>`;
+    return `<span class="decision-badge free-multi" title="${row.rationale}">Demand → ${regionsUsed} regions</span>`;
   }
   return '';
 }
@@ -3461,6 +3479,9 @@ function renderManifestTable(plan){
     const savingsAbs = row.costDelta != null ? Math.abs(row.costDelta) : 0;
     const savingsIcon = row.costDelta == null ? '' : row.costDelta < -0.01 ? `<span style="color:var(--good);font-size:10px;margin-left:4px;">▼ saving</span>` : row.costDelta > 0.01 ? `<span style="color:var(--danger);font-size:10px;margin-left:4px;">▲ premium</span>` : `<span style="color:var(--ink-faint);font-size:10px;margin-left:4px;">= same</span>`;
     const decisionBadge = buildDecisionBadge(row);
+    const confidenceBadge = row.confidence === 'low'
+      ? '<span class="badge" style="background:var(--danger-soft);color:var(--danger);margin-left:6px;" title="Fewer than 14 sold units in the sales history for this SKU — recommendation is directionally useful, not high-confidence.">Low confidence</span>'
+      : '<span class="badge" style="background:var(--good-soft);color:var(--good);margin-left:6px;">High confidence</span>';
     const mainRow = document.createElement('tr');
     mainRow.innerHTML = `
       <td><span class="mtr-toggle" data-idx="${idx}">▸</span></td>
@@ -3472,7 +3493,7 @@ function renderManifestTable(plan){
       <td class="num">${row.cost!=null?fmtMoney(row.cost):'—'}</td>
       <td class="num">${fmtMoney(row.cheapestOnlyCost)}</td>
       <td class="num" style="color:${deltaColor};font-weight:600;">${deltaText}${savingsIcon}</td>
-      <td>${decisionBadge}</td>`;
+      <td>${decisionBadge}${confidenceBadge}<div style="font-size:11px;color:var(--ink-faint);margin-top:5px;max-width:360px;">${row.rationale}</div></td>`;
     tbody.appendChild(mainRow);
 
     const detailRow = document.createElement('tr');
@@ -3858,7 +3879,7 @@ ${dataSection}
 PROJECT BRIEF:
 - Problem: Amazon's placement algorithm does NOT have a regional bias — it cost-minimizes within whatever split option the seller picks. The real gap is the seller never had demand data feeding that choice. This tool is decision-SUPPORT, not "fixing" Amazon's algorithm.
 - This is a fully client-side tool: all parsing, adapting, and optimization runs in the browser on real uploaded CSVs. No server, no backend persistence beyond localStorage.
-- Three regions: East, Central, West. Decision methods: Heuristic (proportional to demand %) and LP Optimizer (grid-search over the 3-region simplex, finds the genuinely cheapest split at a chosen minimum demand-coverage level, correctly models Amazon's real 2026 carton-identity placement fee rule: 5+ identical cartons per item per region qualifies for $0 fee, otherwise the full minimal-split rate applies).
+- Three regions: East, Central, West. Decision methods: Heuristic (proportional to demand %) and Two-pass Optimizer (minimizes split count first, then fixes that split count and minimizes regional demand mismatch while still showing Amazon placement fee deltas).
 - Cost model uses REAL average fee-per-unit by region x size tier, derived directly from the user's uploaded placement fee log — not invented numbers.
 - Restock/destock signals are computed by a deterministic rules engine (real sales velocity from real date spans, real on-hand inventory when uploaded) — never invented, and explicitly distinguishes "real days of stock" (when inventory data exists) from "velocity tier only" (when it doesn't).
 - Sell-through correction (dividing sold units by on-hand units per region) only activates if BOTH an inventory file is uploaded AND the user toggles it on.
@@ -4012,7 +4033,7 @@ document.addEventListener('mouseleave', ()=>vistaTooltip.hide());
   const explainer = document.getElementById('methodExplainer');
   const EXPLAINERS = {
     heuristic: `<b>Best demand match</b> is selected. Each SKU will be split proportionally to your real sales data — no cost optimization. This is the right choice if you want predictable inventory placement that mirrors exactly where your customers actually bought from. You may pay slightly more in placement fees than necessary, but every region gets stocked in proportion to its real pull. <b>Savings: $0 vs. demand baseline — this mode doesn't optimize fees.</b>`,
-    lp: `<b>Lowest placement cost</b> is selected. The optimizer searches every valid box-split combination for each SKU and picks the one that minimizes your total Amazon placement fee — using Amazon's real rule: 5+ identical boxes per SKU per region = $0 fee, fewer = per-unit fee. The "minimum demand coverage" slider below lets you control the trade-off: higher % = prioritize meeting demand even if it costs more, lower % = prioritize $0 fees even if some regions get less stock. <b>Typical savings: 10–30% on placement fees vs. demand-only split.</b>`,
+    lp: `<b>Two-pass split optimization</b> is selected. Pass 1 minimizes the number of shipment splits. Pass 2 fixes that split count and minimizes regional demand mismatch, while enforcing a sensible minimum batch so the plan never creates trickle shipments. Placement fees remain visible as the cost delta against the single-region baseline.`,
   };
   options.forEach(btn=>{
     btn.addEventListener('click', ()=>{
