@@ -446,7 +446,7 @@
         <div class="panel-head-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
         <div class="panel-head-text">
         <h1>Manifest decision</h1>
-        <p>Upload a real Send-to-Amazon manifest. Every SKU in it gets matched against your demand data and split using the method you choose below — heuristic or LP-optimized.</p>
+        <p>Upload a real Send-to-Amazon manifest. Every SKU gets a two-pass optimization: minimize shipment splits first, then match regional demand as closely as possible within that split count.</p>
         </div>
       </div>
 
@@ -520,15 +520,15 @@
           </button>
           <button class="method-option" data-method="lp">
             <div class="mo-title">Lowest placement cost <span class="mo-recommended">Recommended</span></div>
-            <div class="mo-desc">Searches every possible split combination and picks the one that minimizes your total Amazon placement fee — while still hitting a minimum demand coverage target you set. Uses Amazon's real rule: 5+ identical boxes per SKU per region = $0 fee. Fewer boxes = per-unit fee. This is where the real savings come from.</div>
-            <div class="mo-tag">Optimizes your placement cost</div>
+            <div class="mo-desc">Runs the VISTA two-pass optimizer: first minimize the number of shipment splits, then fix that split count and minimize regional demand mismatch. Minimum region batches prevent tiny trickle shipments; Amazon placement fees are still shown as the cost delta vs. the nearest/cheapest FC baseline.</div>
+            <div class="mo-tag">Two-pass split optimization</div>
           </button>
         </div>
         <div class="method-explainer" id="methodExplainer"></div>
       </div>
 
       <div class="slider-row" id="coverageSliderRow" style="display:none;">
-        <label>Minimum demand coverage</label>
+        <label>Demand match floor</label>
         <input type="range" id="coverageSlider" min="0" max="100" value="85">
         <span class="slider-val" id="coverageVal">85%</span>
       </div>
@@ -562,7 +562,7 @@
 
       <div class="card">
         <div class="card-head">
-          <div><h3>Shipment plan, by SKU</h3><div class="card-sub">Recommended region split for every SKU in your manifest — click a row to see the real box breakdown</div></div>
+          <div><h3>Shipment plan, by SKU</h3><div class="card-sub">Recommended region split, rationale, confidence, and cost delta for every SKU — click a row to see the real box breakdown</div></div>
         </div>
         <div class="run-row" style="margin-bottom:14px;flex-wrap:wrap;">
           <input type="text" id="manifestSearchFilter" placeholder="Filter by SKU…" style="background:var(--bg-input);border:1px solid var(--line);border-radius:7px;padding:9px 13px;color:var(--ink);font-size:12.5px;outline:none;width:180px;">
